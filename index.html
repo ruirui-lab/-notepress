@@ -1,0 +1,1237 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f6f8f9">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="筆記印刷機">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='12' y='6' width='40' height='52' rx='4' fill='%23fffdfc' stroke='%232a4e63' stroke-width='4'/%3E%3Cpath d='M21 22h22M21 31h22M21 40h14' stroke='%232a4e63' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px/1.5 system-ui,-apple-system,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>筆記印刷機</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="把 Markdown 筆記排成跟 TwinMind 一樣的版面，分好頁，存成 PDF 放進 GoodNotes 或電子閱讀器。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Serif+TC:wght@700&display=swap">
+<style id="page-size">@page { size: 794px 1123px; margin: 0; }</style>
+<style>
+/* Layout: a cool-gray desk holding real-size paper pages (right), a narrow numbered control column (left); one column under 980px */
+:root {
+  --desk: #e4e9ec;
+  --panel: #f6f8f9;
+  --field: #ffffff;
+  --ink: #1f3a4a;
+  --muted: #5a7281;
+  --line: #d0d9de;
+  --accent: #2a4e63;
+  --accent-ink: #ffffff;
+  --accent-soft: #dce7ed;
+  --warn-bg: #fbf1dc;
+  --warn-ink: #6b4a12;
+  --shadow: rgba(23, 45, 58, 0.16);
+  --scrim: rgba(16, 28, 36, 0.55);
+
+  --f-ui: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", "Helvetica Neue", Arial, sans-serif;
+  --f-brand: "Noto Serif TC", "Songti TC", "PMingLiU", serif;
+  --f-mono: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "PingFang TC", "Noto Sans TC", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --desk: #0f171c; --panel: #162128; --field: #0d1418; --ink: #dae5ea; --muted: #8ea3af;
+    --line: #283841; --accent: #8fc2d9; --accent-ink: #0c1a21; --accent-soft: #1d3340;
+    --warn-bg: #3a2e14; --warn-ink: #f1d79c; --shadow: rgba(0, 0, 0, 0.5); --scrim: rgba(0, 0, 0, 0.66);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --desk: #0f171c; --panel: #162128; --field: #0d1418; --ink: #dae5ea; --muted: #8ea3af;
+  --line: #283841; --accent: #8fc2d9; --accent-ink: #0c1a21; --accent-soft: #1d3340;
+  --warn-bg: #3a2e14; --warn-ink: #f1d79c; --shadow: rgba(0, 0, 0, 0.5); --scrim: rgba(0, 0, 0, 0.66);
+  color-scheme: dark;
+}
+
+html, body { height: 100%; }
+body {
+  background: var(--desk);
+  color: var(--ink);
+  font-family: var(--f-ui);
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+}
+body::before {
+  content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px);
+  z-index: 10; background: var(--panel);
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.app { min-height: 100%; display: flex; flex-direction: column; }
+
+/* ---------- top bar ---------- */
+.bar {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 6;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding-block: 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; margin-right: auto; }
+.brand-name { font-family: var(--f-brand); font-weight: 700; font-size: 1.3rem; letter-spacing: 0.04em; line-height: 1.2; }
+.brand-sub { font-family: var(--f-mono); font-size: 0.72rem; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; }
+.meta { font-family: var(--f-mono); font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 40px; padding: 0 14px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--field); color: var(--ink);
+  font-size: 0.92rem; font-weight: 500; cursor: pointer; white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn:hover { border-color: var(--accent); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.small { min-height: 32px; padding: 0 10px; font-size: 0.84rem; border-radius: 8px; }
+.btn svg { width: 16px; height: 16px; flex: none; }
+
+/* ---------- work area ---------- */
+.work { display: grid; grid-template-columns: minmax(0, 1fr); flex: 1; }
+.panel {
+  min-width: 0;
+  padding-block: 18px 28px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 22px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.preview {
+  min-width: 0;
+  padding-block: 24px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+@media (min-width: 980px) {
+  html, body { overflow: hidden; }
+  .app { height: 100%; }
+  .work { grid-template-columns: minmax(340px, 410px) minmax(0, 1fr); min-height: 0; }
+  .panel { overflow-y: auto; border-bottom: 0; border-right: 1px solid var(--line); padding-right: 22px; }
+  .preview { overflow-y: auto; padding-left: 24px; }
+}
+
+.step { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.step-head { display: flex; align-items: baseline; gap: 10px; }
+.step-no {
+  font-family: var(--f-mono); font-size: 0.72rem; color: var(--accent);
+  border: 1px solid var(--accent); border-radius: 999px; width: 22px; height: 22px;
+  display: inline-grid; place-items: center; flex: none; transform: translateY(-1px);
+}
+.step-title { font-size: 1rem; font-weight: 700; margin: 0; }
+.step-tools { margin-left: auto; display: flex; gap: 4px; }
+
+#src {
+  width: 100%; box-sizing: border-box; min-height: 36vh; resize: vertical;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--field); color: var(--ink);
+  font: 13.5px/1.65 var(--f-mono); tab-size: 2;
+}
+@media (min-width: 980px) { #src { min-height: 34vh; } }
+.hint { margin: 0; font-size: 0.82rem; color: var(--muted); }
+.notice {
+  margin: 0; padding: 10px 12px; border-radius: 10px;
+  background: var(--warn-bg); color: var(--warn-ink); font-size: 0.85rem; line-height: 1.6;
+}
+
+/* segmented choices */
+.group { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.group > legend { padding: 0; margin-bottom: 8px; font-size: 0.82rem; color: var(--muted); font-weight: 500; }
+.choices { display: grid; gap: 8px; }
+.choices.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.choices.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.choice { position: relative; }
+.choice input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.choice > span {
+  display: flex; flex-direction: column; gap: 2px; height: 100%; box-sizing: border-box;
+  padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--field);
+  font-size: 0.9rem; font-weight: 600; line-height: 1.3; text-align: center; justify-content: center;
+}
+.choice small { display: block; font-size: 0.72rem; font-weight: 400; color: var(--muted); line-height: 1.35; }
+.choice input:checked + span { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.choice input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sw { display: inline-flex; gap: 3px; justify-content: center; margin-bottom: 3px; }
+.sw i { width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--line); display: block; }
+
+.switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 0.9rem; }
+.switch input { width: 20px; height: 20px; accent-color: var(--accent); }
+
+.actions { display: flex; flex-direction: column; gap: 8px; }
+.actions .btn { width: 100%; min-height: 46px; font-size: 1rem; }
+
+details.help { border: 1px solid var(--line); border-radius: 12px; background: var(--field); }
+details.help > summary { cursor: pointer; padding: 12px 14px; font-weight: 600; font-size: 0.92rem; list-style: none; display: flex; align-items: center; gap: 8px; }
+details.help > summary::-webkit-details-marker { display: none; }
+details.help > summary::after { content: "＋"; margin-left: auto; color: var(--muted); }
+details.help[open] > summary::after { content: "－"; }
+.help-body { padding: 0 14px 14px; font-size: 0.86rem; display: flex; flex-direction: column; gap: 10px; }
+.help-body ol { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 6px; }
+.prompt {
+  margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--panel); border: 1px dashed var(--line);
+  font-size: 0.84rem; line-height: 1.65; white-space: pre-wrap; user-select: all; -webkit-user-select: all;
+}
+
+/* ---------- preview pages ---------- */
+#pages { display: flex; flex-direction: column; align-items: center; gap: 22px; }
+.slot {
+  position: relative; flex: none;
+  width: calc(var(--pw) * var(--s)); height: calc(var(--ph) * var(--s));
+  box-shadow: 0 1px 2px var(--shadow), 0 10px 30px var(--shadow);
+  border-radius: 2px;
+}
+.slot .page { position: absolute; left: 0; top: 0; transform: scale(var(--s)); transform-origin: 0 0; }
+.slot-label {
+  position: absolute; right: 0; top: 100%; margin-top: 4px;
+  font-family: var(--f-mono); font-size: 0.7rem; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.empty-state { text-align: center; color: var(--muted); padding: 60px 16px; font-size: 0.95rem; }
+
+/* ===== the note itself: matches the TwinMind look ===== */
+.page {
+  --f-note: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  --f-code: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", monospace, "Apple Color Emoji", "Noto Color Emoji";
+  box-sizing: border-box;
+  width: var(--pw); height: var(--ph);
+  padding: var(--mt) var(--mr) var(--mb) var(--ml);
+  background: var(--p-paper);
+  color: var(--p-ink);
+  overflow: hidden;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.page-body { height: 100%; overflow: hidden; }
+.page-num {
+  position: absolute; left: 0; right: 0; bottom: calc(var(--mb) * 0.36);
+  text-align: center; font-family: var(--f-note); font-size: 11px; line-height: 1;
+  color: var(--p-quote); letter-spacing: 0.08em; font-variant-numeric: tabular-nums;
+}
+.page { position: relative; }
+.note {
+  font-family: var(--f-note);
+  font-size: var(--fs);
+  line-height: 1.88;
+  color: var(--p-ink);
+  overflow-wrap: break-word;
+  -webkit-font-smoothing: antialiased;
+}
+.note * { margin: 0; }
+.note > :first-child { margin-top: 0 !important; }
+.note p, .note ul, .note ol, .note blockquote, .note .table-wrap, .note .codeblock, .note dl, .note img { margin-top: 0.85em; }
+.note h1 { font-size: 1.5em; line-height: 1.4; font-weight: 700; margin-top: 1.4em; text-wrap: balance; }
+.note h2 { font-size: 1.22em; line-height: 1.45; font-weight: 700; margin-top: 1.7em; text-wrap: balance; }
+.note h3 { font-size: 1em; line-height: 1.6; font-weight: 700; margin-top: 1.6em; }
+.note h4, .note h5, .note h6 { font-size: 0.95em; line-height: 1.6; font-weight: 700; margin-top: 1.3em; }
+.note h1 + * { margin-top: 1.1em; }
+.note h2 + * { margin-top: 1.55em; }
+.note h3 + *, .note h4 + *, .note h5 + *, .note h6 + * { margin-top: 1.2em; }
+.note hr { border: 0; border-top: 1px solid var(--p-rule); height: 0; margin-top: 1.65em; }
+.note hr + * { margin-top: 1.65em; }
+.note hr + h2 { margin-top: 1.9em; }
+.note strong, .note b { font-weight: 600; }
+.note em { font-style: italic; }
+.note a { color: inherit; text-decoration: underline; text-underline-offset: 0.18em; }
+.note del { opacity: 0.7; }
+.note img { max-width: 100%; display: block; }
+
+.note ul, .note ol { padding-left: 1.45em; list-style: none; }
+.note li { position: relative; }
+.note ul > li::before {
+  content: ""; position: absolute; left: -1.06em; top: 0.77em;
+  width: 0.34em; height: 0.34em; box-sizing: border-box; border-radius: 50%; background: currentColor;
+}
+.note ul ul > li::before { background: transparent; border: 1px solid currentColor; }
+.note ul ul ul > li::before { border: 0; border-radius: 0; background: currentColor; }
+.note ul > li:has(> input[type="checkbox"])::before { display: none; }
+.note ol > li::before {
+  content: attr(data-n) "."; position: absolute; right: 100%; top: 0; margin-right: 0.4em;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.note li + li { margin-top: 0.36em; }
+.note li > ul, .note li > ol { margin-top: 0.36em; }
+.note li > :first-child { margin-top: 0; }
+.note li > p + p { margin-top: 0.4em; }
+
+.note blockquote { border-left: 4px solid var(--p-qbar); padding-left: 1.05em; color: var(--p-quote); }
+.note blockquote > * + * { margin-top: 0.5em; }
+.note blockquote > :first-child { margin-top: 0; }
+
+.note .table-wrap { width: 100%; }
+.note table { width: 100%; border-collapse: collapse; font-size: 0.875em; line-height: 1.6; }
+.note th, .note td {
+  border: 1px solid var(--p-rule); padding: 0.92em 1.07em; text-align: left; vertical-align: top;
+  background: var(--p-td);
+}
+.note th { background: var(--p-th); font-weight: 600; }
+.note table.tight { word-break: break-all; }
+
+.note .codeblock { background: var(--p-cout); border-radius: 0.5em; padding: 0.94em; }
+.note .codeblock pre {
+  margin: 0; background: var(--p-cin); border-radius: 4px;
+  padding: 0.95em 1.07em;
+  font-family: var(--f-code); font-size: 0.8em; line-height: 1.55; color: var(--p-cink);
+  white-space: pre; overflow: hidden; tab-size: 4;
+}
+.note .codeblock pre.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.note .codeblock code { font: inherit; background: none; padding: 0; }
+.note .n { color: var(--p-num); }
+.note :not(pre) > code {
+  font-family: var(--f-code); font-size: 0.85em; background: var(--p-icode);
+  padding: 0.1em 0.35em; border-radius: 4px;
+}
+
+/* ---------- overlays ---------- */
+.busy, .sheet {
+  position: fixed; inset: 0; z-index: 30; display: grid; place-items: center;
+  background: var(--scrim);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-bottom, 0px));
+}
+.busy[hidden], .sheet[hidden] { display: none !important; }
+.card {
+  width: min(440px, 100%); box-sizing: border-box; background: var(--panel); color: var(--ink);
+  border-radius: 16px; padding: 22px; display: flex; flex-direction: column; gap: 14px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+.card h2 { margin: 0; font-size: 1.15rem; }
+.bar-track { height: 6px; border-radius: 6px; background: var(--line); overflow: hidden; }
+.bar-fill { height: 100%; width: 0; background: var(--accent); transition: width 0.2s ease; }
+.card .meta-line { margin: 0; font-family: var(--f-mono); font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label { font-size: 0.82rem; color: var(--muted); }
+.field input { min-height: 42px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--field); }
+.sheet-actions { display: flex; flex-direction: column; gap: 8px; }
+.sheet-actions .btn { min-height: 46px; font-size: 1rem; }
+.card .hint { font-size: 0.82rem; }
+
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px)); z-index: 40;
+  max-width: calc(100% - 32px); box-sizing: border-box;
+  padding: 10px 16px; border-radius: 12px; background: var(--ink); color: var(--panel);
+  font-size: 0.88rem; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.toast[hidden] { display: none !important; }
+
+.help-body h3 { margin: 4px 0 0; font-size: 0.88rem; }
+.help-body p { margin: 0; }
+
+#stage { position: fixed; left: 0; top: 0; z-index: -1; pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) { .bar-fill { transition: none; } }
+
+@media print {
+  html, body { height: auto !important; overflow: visible !important; background: #ffffff !important; }
+  :root { padding: 0 !important; }
+  body::before, .bar, .panel, .busy, .sheet, .toast, #stage, .slot-label { display: none !important; }
+  .app, .work { display: block !important; height: auto !important; }
+  .preview { padding: 0 !important; overflow: visible !important; }
+  #pages { display: block !important; }
+  .slot { width: auto !important; height: auto !important; box-shadow: none !important; border-radius: 0 !important; break-after: page; page-break-after: always; }
+  .slot:last-child { break-after: auto; page-break-after: auto; }
+  .slot .page { position: relative !important; transform: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <div class="brand">
+      <span class="brand-name">筆記印刷機</span>
+      <span class="brand-sub">Markdown → PDF</span>
+    </div>
+    <span class="meta" id="meta">A4 · 210 × 297 mm</span>
+    <button class="btn primary" id="btn-make-top" type="button">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5v7.5M4.8 7 8 10.2 11.2 7M3 13h10"/></svg>
+      製作 PDF
+    </button>
+  </header>
+
+  <main class="work">
+    <aside class="panel" aria-label="設定">
+      <section class="step">
+        <div class="step-head">
+          <span class="step-no">1</span>
+          <h2 class="step-title">貼上筆記</h2>
+          <div class="step-tools">
+            <button class="btn small ghost" id="btn-paste" type="button" hidden>貼上</button>
+            <button class="btn small ghost" id="btn-sample" type="button">載入範例</button>
+            <button class="btn small ghost" id="btn-clear" type="button">清空</button>
+          </div>
+        </div>
+        <p class="notice" id="notice" hidden>這段是純文字，複製時表格和清單已經不見了，目前先依 📌 這類符號推測標題。想要完整格式，請貼 TwinMind 回覆最後的「Markdown 原始碼」區塊，設定方法在下方說明。</p>
+        <label for="src" class="hint" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">筆記內容（Markdown）</label>
+        <textarea id="src" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="把筆記貼在這裡。Markdown 最準；從網頁或 App 複製的格式也會自動轉換。"></textarea>
+        <p class="hint">右邊（或下方）會即時排版並自動分頁，表格太長會帶著表頭接到下一頁。</p>
+      </section>
+
+      <section class="step">
+        <div class="step-head">
+          <span class="step-no">2</span>
+          <h2 class="step-title">版面</h2>
+        </div>
+
+        <fieldset class="group">
+          <legend>頁面尺寸</legend>
+          <div class="choices three" id="g-preset">
+            <label class="choice"><input type="radio" name="preset" value="a4" id="preset-a4"><span>A4<small>GoodNotes・列印</small></span></label>
+            <label class="choice"><input type="radio" name="preset" value="tab" id="preset-tab"><span>3 : 4<small>iPad 全螢幕・10 吋電子紙</small></span></label>
+            <label class="choice"><input type="radio" name="preset" value="ereader" id="preset-ereader"><span>6–7 吋<small>Kindle・Kobo</small></span></label>
+          </div>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>字級</legend>
+          <div class="choices four" id="g-fs">
+            <label class="choice"><input type="radio" name="fs" value="s" id="fs-s"><span>小<small>15</small></span></label>
+            <label class="choice"><input type="radio" name="fs" value="m" id="fs-m"><span>標準<small>17</small></span></label>
+            <label class="choice"><input type="radio" name="fs" value="l" id="fs-l"><span>大<small>19</small></span></label>
+            <label class="choice"><input type="radio" name="fs" value="xl" id="fs-xl"><span>特大<small>21</small></span></label>
+          </div>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>紙張配色</legend>
+          <div class="choices three" id="g-theme">
+            <label class="choice"><input type="radio" name="theme" value="twin" id="theme-twin"><span><span class="sw"><i style="background:#fffdfc"></i><i style="background:#2a4e63"></i></span>原色<small>跟 App 一樣</small></span></label>
+            <label class="choice"><input type="radio" name="theme" value="white" id="theme-white"><span><span class="sw"><i style="background:#ffffff"></i><i style="background:#2a4e63"></i></span>純白<small>適合列印</small></span></label>
+            <label class="choice"><input type="radio" name="theme" value="eink" id="theme-eink"><span><span class="sw"><i style="background:#ffffff"></i><i style="background:#111111"></i></span>電子紙<small>高對比黑字</small></span></label>
+          </div>
+        </fieldset>
+
+        <label class="switch" for="opt-pagenum">頁碼<input type="checkbox" id="opt-pagenum"></label>
+        <label class="switch" for="opt-hq">高解析度（檔案較大，放大更清楚）<input type="checkbox" id="opt-hq"></label>
+      </section>
+
+      <section class="step">
+        <div class="step-head">
+          <span class="step-no">3</span>
+          <h2 class="step-title">輸出</h2>
+        </div>
+        <div class="actions">
+          <button class="btn primary" id="btn-make" type="button">製作 PDF</button>
+          <button class="btn" id="btn-print" type="button" hidden>列印／存成可選取文字的 PDF</button>
+        </div>
+        <p class="hint" id="out-hint">PDF 每頁都跟預覽一模一樣，可以直接匯入 GoodNotes 書寫。</p>
+      </section>
+
+      <details class="help" id="help">
+        <summary>怎麼讓 TwinMind 給我 Markdown？</summary>
+        <div class="help-body">
+          <p>直接複製 TwinMind 的回覆會變成純文字，表格會散掉。把下面這段加進 TwinMind 的個人化設定，以後整理筆記時，回答最後會多一個「Markdown 原始碼」區塊，上面照常顯示好看的版面。</p>
+          <p class="prompt" id="prompt-text">當我請你整理筆記、摘要或課堂重點時：
+1. 先照平常的方式完整回答，正常顯示排版。
+2. 回答最後另起一行寫「📋 Markdown 原始碼（複製用）」，接著把上面整份內容原封不動放進一個程式碼區塊：第一行寫 ~~~~markdown，最後一行寫 ~~~~。
+3. 程式碼區塊裡的內容要和上方一字不差，保留所有標題、emoji、清單、表格（用 | 語法）和程式碼區塊，不要省略、不要另外加說明。
+一般閒聊或簡短問答不用附原始碼。</p>
+          <div><button class="btn small" id="btn-copy-prompt" type="button">複製設定文字</button></div>
+          <h3>之後每次</h3>
+          <p>複製回答最後那個區塊，貼到上面的筆記欄。連外層的 ~~~~markdown 一起貼也沒關係；整則回答全選複製也可以，工具會自動只取原始碼那段。</p>
+        </div>
+      </details>
+    </aside>
+
+    <section class="preview" id="preview" aria-label="預覽">
+      <div id="pages"></div>
+    </section>
+  </main>
+</div>
+
+<div class="busy" id="busy" hidden role="status" aria-live="polite">
+  <div class="card">
+    <h2 id="busy-title">正在製作 PDF</h2>
+    <div class="bar-track"><div class="bar-fill" id="busy-fill"></div></div>
+    <p class="meta-line" id="busy-text">準備中…</p>
+  </div>
+</div>
+
+<div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+  <div class="card">
+    <h2 id="sheet-title">PDF 做好了</h2>
+    <p class="meta-line" id="sheet-meta"></p>
+    <div class="field">
+      <label for="fname">檔名</label>
+      <input id="fname" type="text" autocomplete="off">
+    </div>
+    <div class="sheet-actions">
+      <button class="btn primary" id="btn-save" type="button">儲存 PDF</button>
+      <button class="btn" id="btn-share" type="button" hidden>分享到 GoodNotes 等 App</button>
+      <button class="btn" id="btn-open" type="button" hidden>在新分頁打開</button>
+      <button class="btn ghost" id="btn-close" type="button">關閉</button>
+    </div>
+    <p class="hint" id="sheet-hint"></p>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden role="status" aria-live="polite"></div>
+<div id="stage" aria-hidden="true"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/turndown@7.2.0/dist/turndown.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/turndown-plugin-gfm@1.0.2/dist/turndown-plugin-gfm.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var LIBS = {
+    html2canvas: 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
+    jspdf: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
+  };
+
+  var SAMPLE = [
+    '# 📘 範例筆記｜情緒發展與調節',
+    '',
+    '> 這是一份示範筆記，用來看表格、清單、引言和程式碼區塊在 PDF 裡的樣子。',
+    '> ⚠️ 把你自己的 Markdown 貼進筆記欄，這份範例就會被取代。',
+    '',
+    '---',
+    '',
+    '## 📌 一、情緒發展時間軸',
+    '',
+    '| 月齡 / 年齡 | 情緒發展 |',
+    '|:---|:---|',
+    '| 🍼 新生兒 | 未分化，只有籠統的「偏正向／偏負向」 |',
+    '| 🙂 約 2 個月 | **社會性微笑**出現，回應照顧者的互動 |',
+    '| 😠 4–6 個月 | 分化出**憤怒**：東西被拿走會抗議，做不到會挫折 |',
+    '| 😨 約 6–8 個月 | 出現**陌生人焦慮**與分離焦慮 |',
+    '| 🌱 約 2 歲起 | **自我意識情緒**：尷尬、驕傲、罪惡感 |',
+    '',
+    '### 💡 自我意識情緒的例子',
+    '',
+    '- **驕傲**：完成一件事的開心，加上「是我做到的」',
+    '- **罪惡感**：做錯事之後想要彌補',
+    '  - 需要先有自我概念',
+    '  - 也需要知道規則與標準',
+    '- **尷尬**：被大家注視時想躲起來',
+    '',
+    '---',
+    '',
+    '## 📌 二、情緒調節的發展',
+    '',
+    '1. 嬰兒期：轉移視線、吸吮，主要靠照顧者安撫',
+    '2. 幼兒期：開始能用語言說出感受',
+    '3. 學齡期：學會**重新評估**（reappraisal），換個角度詮釋情境',
+    '',
+    '> 🤔 反思題：你小時候，家裡鼓勵表達哪些情緒？哪些要忍住？',
+    '',
+    '## 📌 三、Yerkes-Dodson 法則（倒 U 型曲線）',
+    '',
+    '```',
+    '表現',
+    ' ↑        ╱‾‾‾╲',
+    ' │      ╱       ╲',
+    ' │    ╱           ╲',
+    ' └──────────────────→ 激發程度',
+    '   太放鬆   適度   太緊張',
+    '```',
+    '',
+    '| 任務類型 | 適合的激發程度 | 教學做法 |',
+    '|:---|:---|:---|',
+    '| 簡單、熟練 | 較高 | 遊戲化、小競賽 |',
+    '| 困難、需要深度思考 | 較低 | 營造安全、低壓的環境 |',
+    '',
+    '## 📌 四、壓力因應的兩大策略',
+    '',
+    '| 策略 | 做法 | 適用情境 |',
+    '|:---|:---|:---|',
+    '| 🛠️ 問題導向 | 找出壓力源、擬定計畫、尋求資源 | 可以控制的問題 |',
+    '| 💗 情緒導向 | 轉念、尋求支持、放鬆、正念 | 當下無法改變的問題 |',
+    '',
+    '```',
+    '可控程度評估 ──(可以改變)──→ 問題導向',
+    '            └─(無法改變)──→ 情緒導向 → 心情平復後再看問題',
+    '```',
+    '',
+    '---',
+    '',
+    '## 🎯 考試重點速查表',
+    '',
+    '| 主題 | 關鍵記憶點 |',
+    '|:---|:---|',
+    '| 情緒分化 | 未分化 → 2 個月正向 → 4–6 個月憤怒 → 6–8 個月恐懼 → 2 歲自我意識情緒 |',
+    '| Yerkes-Dodson | 倒 U 型；簡單任務需較高激發，困難任務需冷靜 |',
+    '| 壓力因應 | 可控用問題導向，不可控用情緒導向 |',
+    ''
+  ].join('\n');
+
+  var PRESETS = {
+    a4:      { w: 794, h: 1123, m: [46, 42, 56, 42], label: 'A4',     mm: '210 × 297 mm' },
+    tab:     { w: 768, h: 1024, m: [38, 34, 50, 34], label: '3:4',    mm: '203 × 271 mm' },
+    ereader: { w: 480, h: 640,  m: [22, 18, 34, 18], label: '6–7 吋', mm: '127 × 169 mm' }
+  };
+  var FONT_SIZES = { s: 15, m: 17, l: 19, xl: 21 };
+  var THEMES = {
+    twin:  { paper: '#fffdfc', ink: '#2a4e63', quote: '#557181', qbar: '#e4e4e3', rule: '#e0e0e0', th: '#faf8f7', td: '#fffdfc', cout: '#f5f5f5', cin: '#ffffff', cink: '#24292e', num: '#005cc5', icode: '#f2f0ee' },
+    white: { paper: '#ffffff', ink: '#2a4e63', quote: '#557181', qbar: '#e4e4e3', rule: '#e0e0e0', th: '#f7f7f6', td: '#ffffff', cout: '#f5f5f5', cin: '#ffffff', cink: '#24292e', num: '#005cc5', icode: '#f2f2f1' },
+    eink:  { paper: '#ffffff', ink: '#111111', quote: '#3a3a3a', qbar: '#999999', rule: '#8c8c8c', th: '#ececec', td: '#ffffff', cout: '#ececec', cin: '#ffffff', cink: '#111111', num: '#111111', icode: '#ececec' }
+  };
+  var STORE_KEY = 'notepress:v1';
+
+  // ---------- environment ----------
+  var IN_VIEWER = !!(window.claude && typeof window.claude.use === 'function');
+  var IS_TOP = true;
+  try { IS_TOP = window.self === window.top; } catch (e) { IS_TOP = false; }
+  var downloadsCap = null;
+  if (IN_VIEWER) {
+    try { window.claude.use('downloads').then(function (d) { downloadsCap = d; }, function () {}); } catch (e) { /* not available */ }
+  }
+
+  var $ = function (s) { return document.querySelector(s); };
+  var src = $('#src'), pagesEl = $('#pages'), stage = $('#stage');
+
+  // ---------- state ----------
+  var state = { preset: 'a4', fs: 'm', theme: 'twin', pagenum: true, hq: false };
+  var saved = null;
+  try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch (e) { saved = null; }
+  if (saved && saved.state) {
+    for (var k in state) if (Object.prototype.hasOwnProperty.call(saved.state, k)) state[k] = saved.state[k];
+  }
+  if (!PRESETS[state.preset]) state.preset = 'a4';
+  if (!FONT_SIZES[state.fs]) state.fs = 'm';
+  if (!THEMES[state.theme]) state.theme = 'twin';
+  src.value = (saved && typeof saved.text === 'string' && saved.text.trim()) ? saved.text : SAMPLE;
+
+  function persist() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify({ text: src.value, state: state })); } catch (e) { /* storage blocked */ }
+  }
+
+  // ---------- helpers ----------
+  function el(tag, cls) { var n = document.createElement(tag); if (cls) n.className = cls; return n; }
+  function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  var PICTO;
+  try { PICTO = new RegExp('^(?:\\p{Extended_Pictographic})', 'u'); }
+  catch (e) { PICTO = /^[←-⯿㊗㊙]|^\ud83c[\udc00-\udfff]|^\ud83d[\udc00-\udfff]|^\ud83e[\udc00-\udfff]/; }
+  var PICTO_ALL;
+  try { PICTO_ALL = new RegExp('[\\p{Extended_Pictographic}\\u{FE0F}\\u{200D}]', 'gu'); }
+  catch (e) { PICTO_ALL = /[←-⯿️‍]|\ud83c[\udc00-\udfff]|\ud83d[\udc00-\udfff]|\ud83e[\udc00-\udfff]/g; }
+
+  var toastTimer = null;
+  function toast(msg) {
+    var t = $('#toast'); t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 3200);
+  }
+  function nextFrame() { return new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); }); }
+
+  var scriptPromises = {};
+  function loadScript(url) {
+    if (scriptPromises[url]) return scriptPromises[url];
+    scriptPromises[url] = new Promise(function (resolve, reject) {
+      var s = document.createElement('script'); s.src = url; s.async = true;
+      s.onload = resolve; s.onerror = function () { delete scriptPromises[url]; reject(new Error('load failed')); };
+      document.head.appendChild(s);
+    });
+    return scriptPromises[url];
+  }
+  function loadPdfLibs() {
+    var jobs = [];
+    if (!window.html2canvas) jobs.push(loadScript(LIBS.html2canvas));
+    if (!(window.jspdf && window.jspdf.jsPDF)) jobs.push(loadScript(LIBS.jspdf));
+    return Promise.all(jobs);
+  }
+
+  // ---------- markdown normalisation ----------
+  var MD_LINE = /^\s{0,3}(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\||```|~~~)/;
+  function normalize(raw) {
+    var t = raw.replace(/\r\n?/g, '\n').replace(/ /g, ' ').replace(/[​﻿]/g, '');
+    // A "~~~~markdown" block anywhere (e.g. the whole TwinMind answer was copied): keep only its inside.
+    var open = /^[ \t]*(`{3,}|~{3,})[ \t]*(?:markdown|md|gfm)[ \t]*$/im.exec(t);
+    if (open) {
+      var fenceStr = open[1];
+      var rest = t.slice(open.index + open[0].length).replace(/^\n/, '');
+      var closeRe = new RegExp('^[ \\t]*' + (fenceStr.charAt(0) === '`' ? '`' : '~') + '{' + fenceStr.length + ',}[ \\t]*$', 'gm');
+      var last = null, cm;
+      while ((cm = closeRe.exec(rest))) last = cm;
+      t = last ? rest.slice(0, last.index) : rest;
+    } else {
+      var m = t.match(/^\s*(`{3,}|~{3,})[ \t]*\n([\s\S]*?)\n[ \t]*\1[ \t]*\s*$/);
+      if (m) t = m[2];
+    }
+
+    var lines = t.split('\n'), out = [], fence = null;
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      var fm = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+      if (fm) {
+        if (!fence) fence = fm[1].charAt(0) + fm[1].length;
+        else if (fm[1].charAt(0) === fence.charAt(0) && fm[1].length >= +fence.slice(1)) fence = null;
+        out.push(line); continue;
+      }
+      if (fence) { out.push(line); continue; }
+      // a heading glued to the end of a sentence: "…不漏。# 📘 標題"
+      line = line.replace(/([。！？!?])[ \t]*(#{1,6}[ \t]+)/g, '$1\n\n$2');
+      // a table whose line breaks were lost: "| a | b | |:---|:---| | c | d |"
+      if (/^\s*\|/.test(line) && /\|[ \t]*:?-{3,}:?[ \t]*\|/.test(line) && /\|[ \t]*\|/.test(line)) {
+        line = line.replace(/\|[ \t]*\|(?=[ \t]*\S)/g, '|\n|');
+      }
+      out.push(line);
+    }
+    t = out.join('\n');
+
+    var nonEmpty = t.split('\n').filter(function (l) { return l.trim(); });
+    var mdCount = nonEmpty.filter(function (l) { return MD_LINE.test(l); }).length;
+    var plain = nonEmpty.length >= 8 && mdCount / nonEmpty.length < 0.05 && !/\*\*[^*\n]+\*\*/.test(t);
+    if (plain) t = plainToMarkdown(t.split('\n'));
+
+    // tables need an empty line in front of them
+    lines = t.split('\n'); out = []; fence = null;
+    for (var j = 0; j < lines.length; j++) {
+      var l2 = lines[j];
+      var f2 = l2.match(/^\s{0,3}(`{3,}|~{3,})/);
+      if (f2) { fence = fence ? null : f2[1]; out.push(l2); continue; }
+      if (!fence && /^\s*\|/.test(l2) && out.length) {
+        var prev = out[out.length - 1];
+        if (prev.trim() && !/^\s*\|/.test(prev)) out.push('');
+      }
+      out.push(l2);
+    }
+    return { text: out.join('\n'), plain: plain };
+  }
+
+  function plainToMarkdown(lines) {
+    var out = [], titled = false;
+    for (var i = 0; i < lines.length; i++) {
+      var s = lines[i].trim();
+      if (!s) continue;
+      if (/^\|/.test(s)) { out.push(s); continue; }
+      if (!titled && /^(📘|📗|📕|📙|📓|📔|📒|📚|📝)/.test(s)) { out.push('', '# ' + s, ''); titled = true; continue; }
+      if (/^📌/.test(s)) { out.push('', '## ' + s, ''); continue; }
+      if (PICTO.test(s) && s.length <= 26 && !/[。，；：！？,.;:!?」）)]$/.test(s)) { out.push('', '### ' + s, ''); continue; }
+      out.push('- ' + s);
+    }
+    return out.join('\n');
+  }
+
+  // ---------- markdown → blocks ----------
+  if (window.marked && window.marked.use) window.marked.use({ gfm: true, breaks: true });
+
+  function highlight(text) {
+    return esc(text).replace(/(^|[^\w.])([+\-−]?\d+(?:\.\d+)?)/g, '$1<span class="n">$2</span>');
+  }
+  function makeCode(text) {
+    var cb = el('div', 'codeblock'); cb.setAttribute('data-code', text);
+    var pre = el('pre'), code = el('code');
+    code.innerHTML = highlight(text);
+    pre.appendChild(code); cb.appendChild(pre);
+    return cb;
+  }
+  var BLOCK = /^(P|H[1-6]|UL|OL|BLOCKQUOTE|HR|DIV|TABLE|PRE|DL|FIGURE|DETAILS|SECTION|IMG)$/;
+
+  function buildBlocks(html) {
+    var box = el('div'); box.innerHTML = html;
+    Array.prototype.forEach.call(box.querySelectorAll('pre'), function (pre) {
+      var code = pre.querySelector('code');
+      var text = (code || pre).textContent.replace(/\n$/, '');
+      pre.parentNode.replaceChild(makeCode(text), pre);
+    });
+    Array.prototype.forEach.call(box.querySelectorAll('ol'), function (ol) {
+      var start = parseInt(ol.getAttribute('start') || '1', 10);
+      if (isNaN(start)) start = 1;
+      Array.prototype.forEach.call(ol.children, function (li, idx) { li.setAttribute('data-n', String(start + idx)); });
+    });
+    Array.prototype.forEach.call(box.querySelectorAll('table'), function (t) {
+      var w = el('div', 'table-wrap'); t.parentNode.replaceChild(w, t); w.appendChild(t);
+    });
+    var blocks = [], pending = null;
+    Array.prototype.slice.call(box.childNodes).forEach(function (n) {
+      if (n.nodeType === 3 && !n.textContent.trim()) return;
+      if (n.nodeType === 1 && BLOCK.test(n.tagName)) { pending = null; blocks.push(n); return; }
+      if (n.nodeType !== 1 && n.nodeType !== 3) return;
+      if (!pending) { pending = el('p'); blocks.push(pending); }
+      pending.appendChild(n);
+    });
+    return blocks;
+  }
+
+  // ---------- fitting wide content ----------
+  function fitCode(cb) {
+    var pre = cb.querySelector('pre');
+    if (cb.getAttribute('data-fitted')) {
+      if (cb.getAttribute('data-fs')) pre.style.fontSize = cb.getAttribute('data-fs');
+      if (cb.getAttribute('data-wrap')) pre.classList.add('wrap');
+      return;
+    }
+    var size = 0.8;
+    while (pre.scrollWidth > pre.clientWidth + 1 && size > 0.62) {
+      size = Math.round((size - 0.03) * 100) / 100;
+      pre.style.fontSize = size + 'em';
+    }
+    if (pre.scrollWidth > pre.clientWidth + 1) { pre.classList.add('wrap'); cb.setAttribute('data-wrap', '1'); }
+    cb.setAttribute('data-fs', pre.style.fontSize || '');
+    cb.setAttribute('data-fitted', '1');
+  }
+  function fitTable(w) {
+    var t = w.querySelector('table');
+    if (!t) return;
+    if (w.getAttribute('data-fitted')) {
+      if (w.getAttribute('data-fs')) t.style.fontSize = w.getAttribute('data-fs');
+      if (w.getAttribute('data-tight')) t.classList.add('tight');
+      return;
+    }
+    var size = 0.875;
+    while (t.offsetWidth > w.clientWidth + 1 && size > 0.7) {
+      size = Math.round((size - 0.04) * 100) / 100;
+      t.style.fontSize = size + 'em';
+    }
+    if (t.offsetWidth > w.clientWidth + 1) { t.classList.add('tight'); w.setAttribute('data-tight', '1'); }
+    w.setAttribute('data-fs', t.style.fontSize || '');
+    w.setAttribute('data-fitted', '1');
+  }
+  function fit(b) {
+    if (b.nodeType !== 1) return;
+    var list = [b].concat(Array.prototype.slice.call(b.querySelectorAll('.codeblock, .table-wrap')));
+    list.forEach(function (n) {
+      if (n.classList.contains('codeblock')) fitCode(n);
+      else if (n.classList.contains('table-wrap')) fitTable(n);
+    });
+  }
+
+  // ---------- pagination ----------
+  function overflows(body) { return body.scrollHeight > body.clientHeight + 1; }
+
+  function newPage() {
+    var slot = el('div', 'slot'), page = el('section', 'page'), body = el('div', 'page-body note'), num = el('div', 'page-num');
+    page.appendChild(body); page.appendChild(num); slot.appendChild(page);
+    pagesEl.appendChild(slot);
+    return body;
+  }
+
+  function splitTable(w, body, emptyPage) {
+    var t = w.querySelector('table'), tb = t && t.tBodies[0];
+    if (!tb) return null;
+    var rows = Array.prototype.slice.call(tb.rows);
+    if (!rows.length) return null;
+    var head = w.cloneNode(false), t1 = t.cloneNode(false);
+    if (t.tHead) t1.appendChild(t.tHead.cloneNode(true));
+    var b1 = document.createElement('tbody'); t1.appendChild(b1); head.appendChild(t1);
+    body.appendChild(head);
+    var n = 0;
+    for (var i = 0; i < rows.length; i++) {
+      b1.appendChild(rows[i].cloneNode(true));
+      if (overflows(body)) { b1.removeChild(b1.lastChild); break; }
+      n++;
+    }
+    if (n === rows.length) return true;
+    if (rows.length - n === 1 && n >= 3) { b1.removeChild(b1.lastChild); n--; } // no lone row on the next page
+    var min = emptyPage ? 1 : Math.min(2, rows.length);
+    if (n < min) { body.removeChild(head); return null; }
+    var tail = w.cloneNode(false), t2 = t.cloneNode(false);
+    tail.classList.add('cont');
+    if (t.tHead) t2.appendChild(t.tHead.cloneNode(true));
+    var b2 = document.createElement('tbody');
+    rows.slice(n).forEach(function (r) { b2.appendChild(r); });
+    t2.appendChild(b2); tail.appendChild(t2);
+    return tail;
+  }
+
+  function splitChildren(box, body) {
+    var items = Array.prototype.slice.call(box.children);
+    if (items.length < 2) return null;
+    var head = box.cloneNode(false); body.appendChild(head);
+    var n = 0;
+    for (var i = 0; i < items.length; i++) {
+      head.appendChild(items[i].cloneNode(true));
+      if (overflows(body)) { head.removeChild(head.lastChild); break; }
+      n++;
+    }
+    if (n === items.length) return true;
+    if (n === 0) { body.removeChild(head); return null; }
+    var tail = box.cloneNode(false); tail.classList.add('cont');
+    if (box.tagName === 'OL') tail.setAttribute('start', String((parseInt(box.getAttribute('start') || '1', 10) || 1) + n));
+    items.slice(n).forEach(function (it) { tail.appendChild(it); });
+    return tail;
+  }
+
+  function codeLike(srcBlock, text) {
+    var c = makeCode(text);
+    ['data-fs', 'data-wrap', 'data-fitted'].forEach(function (a) {
+      if (srcBlock.hasAttribute(a)) c.setAttribute(a, srcBlock.getAttribute(a));
+    });
+    return c;
+  }
+  function splitCode(cb, body, emptyPage) {
+    var lines = cb.getAttribute('data-code').split('\n');
+    if (lines.length < 2 || (lines.length < 4 && !emptyPage)) return null;
+    var lo = 1, hi = lines.length - 1, best = 0;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1;
+      var probe = codeLike(cb, lines.slice(0, mid).join('\n'));
+      body.appendChild(probe); fit(probe);
+      var ok = !overflows(body);
+      body.removeChild(probe);
+      if (ok) { best = mid; lo = mid + 1; } else hi = mid - 1;
+    }
+    if (lines.length - best === 1 && best > 3) best--; // no lone line on the next page
+    if (best < (emptyPage ? 1 : 3)) return null;
+    var head = codeLike(cb, lines.slice(0, best).join('\n'));
+    body.appendChild(head); fit(head);
+    var tail = codeLike(cb, lines.slice(best).join('\n'));
+    tail.classList.add('cont');
+    return tail;
+  }
+
+  function trySplit(b, body, emptyPage) {
+    if (b.classList.contains('table-wrap')) return splitTable(b, body, emptyPage);
+    if (b.classList.contains('codeblock')) return splitCode(b, body, emptyPage);
+    if (b.tagName === 'UL' || b.tagName === 'OL' || b.tagName === 'BLOCKQUOTE') return splitChildren(b, body);
+    return null;
+  }
+
+  function paginate(blocks) {
+    pagesEl.textContent = '';
+    var body = newPage();
+    var queue = blocks.slice(), guard = 0;
+    while (queue.length && guard++ < 20000) {
+      var b = queue.shift();
+      if (b.tagName === 'HR' && !body.childElementCount) continue;
+      body.appendChild(b);
+      fit(b);
+      if (!overflows(body)) continue;
+      body.removeChild(b);
+      var empty = body.childElementCount === 0;
+      var r = trySplit(b, body, empty);
+      if (r === true) continue;
+      if (r) { body = newPage(); queue.unshift(r); continue; }
+      if (empty) { body.appendChild(b); body = newPage(); continue; }
+      var carry = [];
+      while (body.childElementCount > 1 && /^H[1-6]$/.test(body.lastElementChild.tagName)) {
+        carry.unshift(body.removeChild(body.lastElementChild));
+      }
+      while (body.childElementCount > 1 && body.lastElementChild.tagName === 'HR') body.removeChild(body.lastElementChild);
+      body = newPage();
+      carry.forEach(function (c) { body.appendChild(c); });
+      queue.unshift(b);
+    }
+    var slots = pagesEl.children;
+    while (slots.length > 1 && !slots[slots.length - 1].querySelector('.page-body').childElementCount) {
+      pagesEl.removeChild(slots[slots.length - 1]);
+    }
+  }
+
+  // ---------- page variables ----------
+  function applyVars(target) {
+    var P = PRESETS[state.preset], T = THEMES[state.theme], s = target.style;
+    s.setProperty('--pw', P.w + 'px'); s.setProperty('--ph', P.h + 'px');
+    s.setProperty('--mt', P.m[0] + 'px'); s.setProperty('--mr', P.m[1] + 'px');
+    s.setProperty('--mb', P.m[2] + 'px'); s.setProperty('--ml', P.m[3] + 'px');
+    s.setProperty('--fs', FONT_SIZES[state.fs] + 'px');
+    for (var key in T) s.setProperty('--p-' + key, T[key]);
+  }
+
+  function layoutPreview() {
+    var P = PRESETS[state.preset];
+    var pv = $('#preview'), cs = getComputedStyle(pv);
+    var avail = pv.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    var s = Math.min(1, Math.max(0.2, avail / P.w));
+    pagesEl.style.setProperty('--s', String(Math.floor(s * 1000) / 1000));
+  }
+
+  var currentTitle = '筆記';
+  function render() {
+    applyVars(pagesEl);
+    applyVars(stage);
+    var P = PRESETS[state.preset];
+    $('#page-size').textContent = '@page { size: ' + P.w + 'px ' + P.h + 'px; margin: 0; }';
+
+    if (!window.marked || !window.DOMPurify) {
+      pagesEl.innerHTML = '<p class="empty-state">排版元件沒有載入成功，請確認網路連線後重新整理。</p>';
+      return;
+    }
+    var norm = normalize(src.value);
+    $('#notice').hidden = !norm.plain;
+    if (!norm.text.trim()) {
+      pagesEl.innerHTML = '<p class="empty-state">筆記欄是空的。貼上 Markdown，或按「載入範例」看看效果。</p>';
+      updateMeta(0);
+      return;
+    }
+    var html = window.DOMPurify.sanitize(window.marked.parse(norm.text), { USE_PROFILES: { html: true } });
+    var blocks = buildBlocks(html);
+    var h1 = null;
+    for (var i = 0; i < blocks.length; i++) { if (/^H[1-3]$/.test(blocks[i].tagName)) { h1 = blocks[i]; break; } }
+    currentTitle = h1 ? cleanName(h1.textContent) : '筆記';
+
+    paginate(blocks);
+    var slots = pagesEl.querySelectorAll('.slot'), total = slots.length;
+    Array.prototype.forEach.call(slots, function (slot, idx) {
+      slot.querySelector('.page-num').textContent = state.pagenum ? (idx + 1) + ' / ' + total : '';
+      var lab = el('span', 'slot-label'); lab.textContent = (idx + 1) + ' / ' + total; slot.appendChild(lab);
+    });
+    layoutPreview();
+    updateMeta(total);
+  }
+
+  function updateMeta(total) {
+    var P = PRESETS[state.preset];
+    $('#meta').textContent = P.label + ' · ' + P.mm + (total ? ' · ' + total + ' 頁' : '');
+  }
+
+  function cleanName(s) {
+    var n = (s || '').replace(PICTO_ALL, '').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-').replace(/\s+/g, ' ').trim();
+    n = n.replace(/^[-\s]+|[-\s]+$/g, '');
+    if (n.length > 80) n = n.slice(0, 80).trim();
+    return n || '筆記';
+  }
+
+  var renderTimer = null;
+  function scheduleRender(delay) {
+    clearTimeout(renderTimer);
+    renderTimer = setTimeout(function () { render(); persist(); }, delay == null ? 350 : delay);
+  }
+
+  // ---------- controls ----------
+  function syncControls() {
+    $('#preset-' + state.preset).checked = true;
+    $('#fs-' + state.fs).checked = true;
+    $('#theme-' + state.theme).checked = true;
+    $('#opt-pagenum').checked = !!state.pagenum;
+    $('#opt-hq').checked = !!state.hq;
+  }
+  ['preset', 'fs', 'theme'].forEach(function (name) {
+    Array.prototype.forEach.call(document.querySelectorAll('input[name="' + name + '"]'), function (inp) {
+      inp.addEventListener('change', function () { if (inp.checked) { state[name] = inp.value; scheduleRender(0); } });
+    });
+  });
+  $('#opt-pagenum').addEventListener('change', function (e) { state.pagenum = e.target.checked; scheduleRender(0); });
+  $('#opt-hq').addEventListener('change', function (e) { state.hq = e.target.checked; persist(); });
+
+  src.addEventListener('input', function () { scheduleRender(); });
+  $('#btn-sample').addEventListener('click', function () { src.value = SAMPLE; scheduleRender(0); toast('已載入範例'); });
+
+  var clearArmed = false, clearTimer = null;
+  $('#btn-clear').addEventListener('click', function (e) {
+    var btn = e.currentTarget;
+    if (!clearArmed) {
+      clearArmed = true; btn.textContent = '再按一次清空';
+      clearTimer = setTimeout(function () { clearArmed = false; btn.textContent = '清空'; }, 2500);
+      return;
+    }
+    clearTimeout(clearTimer); clearArmed = false; btn.textContent = '清空';
+    src.value = ''; scheduleRender(0); src.focus();
+  });
+
+  // rich paste → markdown
+  var turndown = null;
+  function htmlToMd(html) {
+    if (!turndown) {
+      turndown = new window.TurndownService({ headingStyle: 'atx', bulletListMarker: '-', codeBlockStyle: 'fenced', emDelimiter: '*', strongDelimiter: '**', hr: '---' });
+      if (window.turndownPluginGfm) turndown.use(window.turndownPluginGfm.gfm);
+      turndown.remove(['script', 'style', 'meta', 'link', 'title']);
+    }
+    return turndown.turndown(html).replace(/\n{3,}/g, '\n\n');
+  }
+  function insertText(text) {
+    src.focus();
+    var ok = false;
+    try { ok = document.execCommand('insertText', false, text); } catch (e) { ok = false; }
+    if (!ok) {
+      var a = src.selectionStart, b = src.selectionEnd;
+      src.setRangeText(text, a, b, 'end');
+    }
+    scheduleRender(0);
+  }
+  var RICH = /<(table|h[1-6]|li|strong|b|pre|blockquote)\b/i;
+  function looksLikeMarkdown(t) {
+    var ls = t.split(/\r?\n/).filter(function (l) { return l.trim(); });
+    var n = ls.filter(function (l) { return MD_LINE.test(l); }).length;
+    return n >= 2 && n / Math.max(1, ls.length) >= 0.1;
+  }
+  src.addEventListener('paste', function (e) {
+    var dt = e.clipboardData; if (!dt) return;
+    var html = dt.getData('text/html');
+    if (html && RICH.test(html) && window.TurndownService) {
+      if (looksLikeMarkdown(dt.getData('text/plain') || '')) return; // copied Markdown source: keep it as is
+      e.preventDefault();
+      insertText(htmlToMd(html));
+      toast('已把貼上的格式轉成 Markdown');
+    }
+  });
+
+  if (IS_TOP && navigator.clipboard && navigator.clipboard.read) {
+    var pasteBtn = $('#btn-paste'); pasteBtn.hidden = false;
+    pasteBtn.addEventListener('click', function () {
+      navigator.clipboard.read().then(function (items) {
+        var item = items[0];
+        if (!item) return;
+        var plainP = item.types.indexOf('text/plain') >= 0 ? item.getType('text/plain').then(function (b) { return b.text(); }) : Promise.resolve('');
+        return plainP.then(function (pt) {
+          if (pt && looksLikeMarkdown(pt)) { src.select(); insertText(pt); return; }
+          return pasteRich(item, pt);
+        });
+      }).catch(function () { toast('瀏覽器沒有允許讀取剪貼簿，請直接在筆記欄長按貼上'); });
+    });
+  }
+  function pasteRich(item, pt) {
+    if (item.types.indexOf('text/html') >= 0 && window.TurndownService) {
+      return item.getType('text/html').then(function (b) { return b.text(); }).then(function (h) {
+        src.select();
+        if (RICH.test(h)) { insertText(htmlToMd(h)); toast('已貼上並轉成 Markdown'); }
+        else insertText(pt);
+      });
+    }
+    if (pt) { src.select(); insertText(pt); }
+  }
+
+  $('#btn-copy-prompt').addEventListener('click', function () {
+    var text = $('#prompt-text').textContent;
+    var done = function () { toast('已複製設定文字'); };
+    var fallback = function () {
+      var r = document.createRange(); r.selectNodeContents($('#prompt-text'));
+      var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      toast('已選取設定文字，請按複製');
+    };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
+      else fallback();
+    } catch (e) { fallback(); }
+  });
+
+  // ---------- PDF ----------
+  var lastBlob = null, lastUrl = null;
+  function setBusy(on, text, frac) {
+    $('#busy').hidden = !on;
+    if (text != null) $('#busy-text').textContent = text;
+    if (frac != null) $('#busy-fill').style.width = Math.round(frac * 100) + '%';
+  }
+  function fmtSize(bytes) {
+    return bytes > 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(bytes / 1024)) + ' KB';
+  }
+
+  async function makePdf() {
+    if (!pagesEl.querySelector('.page')) { toast('先貼上筆記才能製作 PDF'); return; }
+    clearTimeout(renderTimer); render(); persist();
+    setBusy(true, '載入 PDF 元件…', 0.02);
+    try { await loadPdfLibs(); }
+    catch (e) { setBusy(false); toast('PDF 元件載入失敗，請確認網路後再試一次'); return; }
+    try {
+      if (document.fonts && document.fonts.ready) await document.fonts.ready;
+      var P = PRESETS[state.preset], T = THEMES[state.theme];
+      var scale = state.hq ? 3 : 2;
+      var wPt = P.w * 0.75, hPt = P.h * 0.75;
+      var pdf = new window.jspdf.jsPDF({ unit: 'pt', format: [wPt, hPt], orientation: 'portrait', compress: true });
+      var pages = pagesEl.querySelectorAll('.page');
+      for (var i = 0; i < pages.length; i++) {
+        setBusy(true, '正在製作第 ' + (i + 1) + ' / ' + pages.length + ' 頁…', (i + 0.2) / pages.length);
+        var clone = pages[i].cloneNode(true);
+        stage.textContent = '';
+        stage.appendChild(clone);
+        await nextFrame();
+        var canvas = await window.html2canvas(clone, {
+          scale: scale, backgroundColor: T.paper, logging: false, useCORS: true,
+          windowWidth: Math.max(window.innerWidth, P.w + 40),
+          windowHeight: Math.max(window.innerHeight, P.h + 40)
+        });
+        var data = canvas.toDataURL('image/jpeg', 0.92);
+        if (i > 0) pdf.addPage([wPt, hPt], 'portrait');
+        pdf.addImage(data, 'JPEG', 0, 0, wPt, hPt, undefined, 'FAST');
+        canvas.width = 0; canvas.height = 0;
+      }
+      stage.textContent = '';
+      pdf.setProperties({ title: currentTitle, creator: '筆記印刷機' });
+      lastBlob = pdf.output('blob');
+      setBusy(true, '完成', 1);
+      setBusy(false);
+      openSheet(pages.length);
+    } catch (err) {
+      stage.textContent = '';
+      setBusy(false);
+      toast('製作失敗：' + (err && err.message ? err.message : '未知錯誤'));
+    }
+  }
+
+  function openSheet(n) {
+    var P = PRESETS[state.preset];
+    $('#sheet-meta').textContent = n + ' 頁 · ' + fmtSize(lastBlob.size) + ' · ' + P.label + '（' + P.mm + '）';
+    $('#fname').value = currentTitle;
+    var canShare = false;
+    if (IS_TOP && navigator.canShare) {
+      try { canShare = navigator.canShare({ files: [new File([lastBlob], 'a.pdf', { type: 'application/pdf' })] }); } catch (e) { canShare = false; }
+    }
+    $('#btn-share').hidden = !canShare;
+    $('#btn-open').hidden = !IS_TOP;
+    var hint;
+    if (IN_VIEWER && !IS_TOP) hint = '按「儲存 PDF」後確認一次。在 Claude 的 iPad／iPhone App 會跳出分享選單，可以直接選 GoodNotes。';
+    else if (canShare) hint = 'iPad 上按「分享到 GoodNotes 等 App」，在選單裡選 GoodNotes 就會匯入。';
+    else hint = '存好後，在 GoodNotes 按「＋」→「匯入」選這個檔案；電子閱讀器用傳輸線或雲端同步放進去。';
+    $('#sheet-hint').textContent = hint;
+    $('#sheet').hidden = false;
+    $('#btn-save').focus();
+  }
+  function closeSheet() { $('#sheet').hidden = true; }
+  function fileName() { return cleanName($('#fname').value) + '.pdf'; }
+
+  async function savePdf() {
+    if (!lastBlob) return;
+    var name = fileName();
+    if (downloadsCap) {
+      try {
+        await downloadsCap.save({ filename: name, data: lastBlob });
+        toast('已存好 ' + name);
+        closeSheet();
+      } catch (e) {
+        var code = e && e.code;
+        if (code === 'declined') return;
+        if (code === 'rate_limited') toast('上一個儲存視窗還開著，稍等一下再試');
+        else if (code === 'too_large') toast('檔案太大，請關掉高解析度再試');
+        else toast('這個畫面不能存檔。請用 GitHub 版的網址打開這個工具再試。');
+      }
+      return;
+    }
+    if (IN_VIEWER && !IS_TOP) { toast('這個畫面不能存檔。請用 GitHub 版的網址打開這個工具再試。'); return; }
+    if (lastUrl) URL.revokeObjectURL(lastUrl);
+    lastUrl = URL.createObjectURL(lastBlob);
+    var a = document.createElement('a'); a.href = lastUrl; a.download = name; a.rel = 'noopener';
+    document.body.appendChild(a); a.click(); a.remove();
+    toast('已開始下載 ' + name);
+  }
+  async function sharePdf() {
+    if (!lastBlob) return;
+    var file = new File([lastBlob], fileName(), { type: 'application/pdf' });
+    try { await navigator.share({ files: [file], title: fileName() }); closeSheet(); }
+    catch (e) { if (!e || e.name !== 'AbortError') toast('沒有分享成功，可以改按「儲存 PDF」'); }
+  }
+  function openPdf() {
+    if (!lastBlob) return;
+    if (lastUrl) URL.revokeObjectURL(lastUrl);
+    lastUrl = URL.createObjectURL(lastBlob);
+    var w = window.open(lastUrl, '_blank');
+    if (!w) toast('瀏覽器擋住了新分頁，請改按「儲存 PDF」');
+  }
+
+  $('#btn-make').addEventListener('click', makePdf);
+  $('#btn-make-top').addEventListener('click', makePdf);
+  $('#btn-save').addEventListener('click', savePdf);
+  $('#btn-share').addEventListener('click', sharePdf);
+  $('#btn-open').addEventListener('click', openPdf);
+  $('#btn-close').addEventListener('click', closeSheet);
+  $('#sheet').addEventListener('click', function (e) { if (e.target === e.currentTarget) closeSheet(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
+
+  if (IS_TOP) {
+    var printBtn = $('#btn-print'); printBtn.hidden = false;
+    printBtn.addEventListener('click', function () { clearTimeout(renderTimer); render(); window.print(); });
+    $('#out-hint').textContent = 'PDF 每頁都跟預覽一模一樣，可以直接匯入 GoodNotes 書寫。想要能選取、搜尋文字，改用「列印」並選「存成 PDF」。';
+  }
+
+  // ---------- boot ----------
+  syncControls();
+  render();
+  var resizeTimer = null;
+  window.addEventListener('resize', function () { clearTimeout(resizeTimer); resizeTimer = setTimeout(layoutPreview, 120); });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { render(); });
+  setTimeout(function () { loadPdfLibs().catch(function () {}); }, 1500);
+})();
+</script>
+</body>
+</html>
