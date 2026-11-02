@@ -1,6 +1,6 @@
 # 筆記印刷機
 
-把 Markdown 筆記排成跟 TwinMind 一樣的版面（同樣的字色、表格、引言、程式碼區塊），自動分頁，存成 PDF 放進 GoodNotes 或電子閱讀器。
+把 Markdown 筆記排成跟 TwinMind 一樣的版面（同樣的字色、表格、引言、程式碼區塊），自動分頁，存成 PDF 放進 GoodNotes，或存成 EPUB 放進電子閱讀器。
 
 整個工具只有一個 `index.html`，在瀏覽器裡執行，筆記不會上傳到任何伺服器。
 
@@ -11,6 +11,7 @@
 - 字級四段、配色三種（原色、純白、電子紙高對比）、頁碼開關
 - 「製作 PDF」：每頁跟預覽一模一樣；iPad 上可以直接分享到 GoodNotes
 - 「列印／存成可選取文字的 PDF」：用瀏覽器列印存檔，文字可以搜尋、選取
+- 「製作 EPUB 電子書」：在閱讀器裡重新排版、可以調字級，每個 📌 段落是一章，有目錄；Kindle 用 Send to Kindle，Kobo、Boox 直接放進去；可選擇拿掉 emoji
 - 貼上的內容裡有 `~~~~markdown` 區塊時，只取區塊裡面的內容；整則回答全選複製也可以
 - 從網頁複製有格式的內容會自動轉回 Markdown；純文字會依 📌 這類符號推測標題（表格救不回來）
 
@@ -39,4 +40,4 @@
 
 ## 使用的開源套件
 
-都從 CDN 載入：[marked](https://github.com/markedjs/marked)、[DOMPurify](https://github.com/cure53/DOMPurify)、[Turndown](https://github.com/mixmark-io/turndown)、[html2canvas](https://github.com/niklasvh/html2canvas)、[jsPDF](https://github.com/parallax/jsPDF)。
+都從 CDN 載入：[marked](https://github.com/markedjs/marked)、[JSZip](https://github.com/Stuk/jszip)、[DOMPurify](https://github.com/cure53/DOMPurify)、[Turndown](https://github.com/mixmark-io/turndown)、[html2canvas](https://github.com/niklasvh/html2canvas)、[jsPDF](https://github.com/parallax/jsPDF)。

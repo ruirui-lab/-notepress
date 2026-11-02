@@ -422,9 +422,11 @@ details.help[open] > summary::after { content: "－"; }
         </div>
         <div class="actions">
           <button class="btn primary" id="btn-make" type="button">製作 PDF</button>
+          <button class="btn" id="btn-epub" type="button">製作 EPUB 電子書</button>
           <button class="btn" id="btn-print" type="button" hidden>列印／存成可選取文字的 PDF</button>
         </div>
-        <p class="hint" id="out-hint">PDF 每頁都跟預覽一模一樣，可以直接匯入 GoodNotes 書寫。</p>
+        <label class="switch" for="opt-noemoji">EPUB 拿掉 emoji（閱讀器顯示成方框時再勾）<input type="checkbox" id="opt-noemoji"></label>
+        <p class="hint" id="out-hint">PDF 每頁都跟預覽一模一樣，適合 GoodNotes 書寫。EPUB 會在閱讀器裡重新排版、可以調字級，每個 📌 段落是一章，適合 Kindle、Kobo 閱讀。</p>
       </section>
 
       <details class="help" id="help">
@@ -488,7 +490,8 @@ details.help[open] > summary::after { content: "－"; }
 
   var LIBS = {
     html2canvas: 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
-    jspdf: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
+    jspdf: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+    jszip: 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'
   };
 
   var SAMPLE = [
@@ -593,7 +596,7 @@ details.help[open] > summary::after { content: "－"; }
   var src = $('#src'), pagesEl = $('#pages'), stage = $('#stage');
 
   // ---------- state ----------
-  var state = { preset: 'a4', fs: 'm', theme: 'twin', pagenum: true, hq: false };
+  var state = { preset: 'a4', fs: 'm', theme: 'twin', pagenum: true, hq: false, noemoji: false };
   var saved = null;
   try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch (e) { saved = null; }
   if (saved && saved.state) {
@@ -997,6 +1000,7 @@ details.help[open] > summary::after { content: "－"; }
     $('#theme-' + state.theme).checked = true;
     $('#opt-pagenum').checked = !!state.pagenum;
     $('#opt-hq').checked = !!state.hq;
+    $('#opt-noemoji').checked = !!state.noemoji;
   }
   ['preset', 'fs', 'theme'].forEach(function (name) {
     Array.prototype.forEach.call(document.querySelectorAll('input[name="' + name + '"]'), function (inp) {
@@ -1005,6 +1009,7 @@ details.help[open] > summary::after { content: "－"; }
   });
   $('#opt-pagenum').addEventListener('change', function (e) { state.pagenum = e.target.checked; scheduleRender(0); });
   $('#opt-hq').addEventListener('change', function (e) { state.hq = e.target.checked; persist(); });
+  $('#opt-noemoji').addEventListener('change', function (e) { state.noemoji = e.target.checked; persist(); });
 
   src.addEventListener('input', function () { scheduleRender(); });
   $('#btn-sample').addEventListener('click', function () { src.value = SAMPLE; scheduleRender(0); toast('已載入範例'); });
@@ -1098,9 +1103,14 @@ details.help[open] > summary::after { content: "－"; }
   });
 
   // ---------- PDF ----------
-  var lastBlob = null, lastUrl = null;
-  function setBusy(on, text, frac) {
+  var lastBlob = null, lastUrl = null, lastKind = 'pdf';
+  var KINDS = {
+    pdf:  { ext: 'pdf',  mime: 'application/pdf',      label: 'PDF' },
+    epub: { ext: 'epub', mime: 'application/epub+zip', label: 'EPUB' }
+  };
+  function setBusy(on, text, frac, title) {
     $('#busy').hidden = !on;
+    if (title) $('#busy-title').textContent = title;
     if (text != null) $('#busy-text').textContent = text;
     if (frac != null) $('#busy-fill').style.width = Math.round(frac * 100) + '%';
   }
@@ -1111,7 +1121,7 @@ details.help[open] > summary::after { content: "－"; }
   async function makePdf() {
     if (!pagesEl.querySelector('.page')) { toast('先貼上筆記才能製作 PDF'); return; }
     clearTimeout(renderTimer); render(); persist();
-    setBusy(true, '載入 PDF 元件…', 0.02);
+    setBusy(true, '載入 PDF 元件…', 0.02, '正在製作 PDF');
     try { await loadPdfLibs(); }
     catch (e) { setBusy(false); toast('PDF 元件載入失敗，請確認網路後再試一次'); return; }
     try {
@@ -1139,10 +1149,9 @@ details.help[open] > summary::after { content: "－"; }
       }
       stage.textContent = '';
       pdf.setProperties({ title: currentTitle, creator: '筆記印刷機' });
-      lastBlob = pdf.output('blob');
-      setBusy(true, '完成', 1);
+      lastBlob = pdf.output('blob'); lastKind = 'pdf';
       setBusy(false);
-      openSheet(pages.length);
+      openSheet(pages.length + ' 頁 · ' + fmtSize(lastBlob.size) + ' · ' + P.label + '（' + P.mm + '）');
     } catch (err) {
       stage.textContent = '';
       setBusy(false);
@@ -1150,28 +1159,207 @@ details.help[open] > summary::after { content: "－"; }
     }
   }
 
-  function openSheet(n) {
-    var P = PRESETS[state.preset];
-    $('#sheet-meta').textContent = n + ' 頁 · ' + fmtSize(lastBlob.size) + ' · ' + P.label + '（' + P.mm + '）';
+  // ---------- EPUB ----------
+  var EMOJI_RUN;
+  try {
+    EMOJI_RUN = new RegExp('(?:(?![\\u00A9\\u00AE\\u2122\\u2190-\\u21FF])[\\p{Extended_Pictographic}\\u{1F1E6}-\\u{1F1FF}\\u{1F3FB}-\\u{1F3FF}\\u{FE0F}\\u{200D}\\u{20E3}])+[ \\t\\u3000]?', 'gu');
+  } catch (e) {
+    EMOJI_RUN = /(?:[☀-➿⬀-⯿️‍⃣]|\ud83c[\udc00-\udfff]|\ud83d[\udc00-\udfff]|\ud83e[\udc00-\udfff])+[ \t　]?/g;
+  }
+  var EPUB_CSS = [
+    'body { margin: 0 0.4em; line-height: 1.7; }',
+    'h1 { font-size: 1.5em; font-weight: bold; line-height: 1.35; margin: 0.4em 0 0.9em; }',
+    'h2 { font-size: 1.28em; font-weight: bold; line-height: 1.4; margin: 0.2em 0 0.9em; page-break-after: avoid; }',
+    'h3 { font-size: 1.08em; font-weight: bold; line-height: 1.5; margin: 1.5em 0 0.6em; page-break-after: avoid; }',
+    'h4, h5, h6 { font-size: 1em; font-weight: bold; margin: 1.2em 0 0.5em; page-break-after: avoid; }',
+    'p { margin: 0.6em 0; text-indent: 0; }',
+    'ul, ol { margin: 0.6em 0; padding-left: 1.4em; }',
+    'li { margin: 0.3em 0; }',
+    'li > ul, li > ol { margin: 0.3em 0; }',
+    'blockquote { margin: 0.9em 0; padding: 0.1em 0 0.1em 0.9em; border-left: 3px solid #9a9a9a; }',
+    'hr { border: 0; border-top: 1px solid #a0a0a0; margin: 1.5em 0; }',
+    'strong, b { font-weight: bold; }',
+    'table { border-collapse: collapse; width: 100%; margin: 0.9em 0; font-size: 0.86em; line-height: 1.5; }',
+    'th, td { border: 1px solid #8c8c8c; padding: 0.35em 0.5em; text-align: left; vertical-align: top; }',
+    'th { font-weight: bold; background-color: #ececec; }',
+    'pre { white-space: pre-wrap; word-wrap: break-word; font-family: monospace; font-size: 0.78em; line-height: 1.45; margin: 0.9em 0; padding: 0.6em 0.7em; border: 1px solid #b5b5b5; background-color: #f3f3f3; page-break-inside: avoid; }',
+    'code { font-family: monospace; font-size: 0.92em; }',
+    'pre code { font-size: 1em; }',
+    'nav ol { list-style: none; padding-left: 0; }',
+    'nav li { margin: 0.5em 0; }'
+  ].join('\n');
+
+  function xesc(t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function xmlSafe(t) { return String(t).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, ''); }
+  function uuid() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      var r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16);
+    });
+  }
+  function stripEmoji(root) {
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT), list = [];
+    while (walker.nextNode()) list.push(walker.currentNode);
+    list.forEach(function (t) {
+      if (t.parentNode && t.parentNode.closest && t.parentNode.closest('pre')) return;
+      EMOJI_RUN.lastIndex = 0;
+      t.nodeValue = t.nodeValue.replace(EMOJI_RUN, '');
+    });
+    Array.prototype.forEach.call(root.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,td,th'), function (n) {
+      var f = n.firstChild;
+      if (f && f.nodeType === 3) f.nodeValue = f.nodeValue.replace(/^[\s　]+/, '');
+    });
+  }
+  function xhtmlDoc(title, bodyXml) {
+    return '<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE html>\n' +
+      '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="zh-TW" lang="zh-TW">\n' +
+      '<head>\n<meta charset="utf-8"/>\n<title>' + xesc(title) + '</title>\n<link rel="stylesheet" type="text/css" href="style.css"/>\n</head>\n' +
+      '<body>\n' + bodyXml + '\n</body>\n</html>\n';
+  }
+
+  function buildEpubFiles(html, noEmoji) {
+    var box = el('div'); box.innerHTML = html;
+    Array.prototype.forEach.call(box.querySelectorAll('img'), function (img) {
+      var alt = img.getAttribute('alt');
+      img.parentNode.replaceChild(document.createTextNode(alt || ''), img);
+    });
+    Array.prototype.forEach.call(box.querySelectorAll('input'), function (inp) {
+      inp.parentNode.replaceChild(document.createTextNode(inp.checked ? '☑ ' : '☐ '), inp);
+    });
+    Array.prototype.forEach.call(box.querySelectorAll('[align]'), function (n) {
+      var a = (n.getAttribute('align') || '').toLowerCase();
+      n.removeAttribute('align');
+      if (a === 'center' || a === 'right') n.setAttribute('style', 'text-align: ' + a);
+    });
+    Array.prototype.forEach.call(box.querySelectorAll('[id]'), function (n) { n.removeAttribute('id'); });
+    if (noEmoji) stripEmoji(box);
+
+    var h1 = box.querySelector('h1');
+    var bookTitle = (h1 ? h1.textContent : currentTitle).replace(/\s+/g, ' ').trim() || '筆記';
+
+    var chapters = [], cur = null;
+    Array.prototype.slice.call(box.childNodes).forEach(function (n) {
+      if (n.nodeType === 3 && !n.textContent.trim()) return;
+      if (n.nodeType !== 1 && n.nodeType !== 3) return;
+      if (n.nodeType === 1 && n.tagName === 'H2') { cur = { title: n.textContent.replace(/\s+/g, ' ').trim(), nodes: [n] }; chapters.push(cur); return; }
+      if (!cur) { cur = { title: null, nodes: [] }; chapters.push(cur); }
+      cur.nodes.push(n);
+    });
+    chapters.forEach(function (c) {
+      while (c.nodes.length && c.nodes[c.nodes.length - 1].tagName === 'HR') c.nodes.pop();
+      while (c.nodes.length > 1 && c.nodes[0].tagName === 'HR') c.nodes.shift();
+    });
+    chapters = chapters.filter(function (c) { return c.nodes.length; });
+    if (!chapters.length) throw new Error('筆記是空的');
+    if (!chapters[0].title) chapters[0].title = bookTitle;
+
+    var ser = new XMLSerializer(), id = 'urn:uuid:' + uuid();
+    var files = [];
+    chapters.forEach(function (c, idx) {
+      var sec = document.createElement('section');
+      c.nodes.forEach(function (n) { sec.appendChild(n.cloneNode(true)); });
+      c.file = 'c' + String(idx + 1).padStart(3, '0') + '.xhtml';
+      files.push({ path: 'OEBPS/' + c.file, data: xmlSafe(xhtmlDoc(c.title, ser.serializeToString(sec))) });
+    });
+    var modified = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+    var navItems = chapters.map(function (c) { return '<li><a href="' + c.file + '">' + xesc(c.title) + '</a></li>'; }).join('\n');
+    var nav = '<?xml version="1.0" encoding="utf-8"?>\n<!DOCTYPE html>\n' +
+      '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="zh-TW" lang="zh-TW">\n' +
+      '<head>\n<meta charset="utf-8"/>\n<title>目錄</title>\n<link rel="stylesheet" type="text/css" href="style.css"/>\n</head>\n' +
+      '<body>\n<nav epub:type="toc" id="toc">\n<h1>目錄</h1>\n<ol>\n' + navItems + '\n</ol>\n</nav>\n</body>\n</html>\n';
+    var ncx = '<?xml version="1.0" encoding="utf-8"?>\n<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">\n' +
+      '<head>\n<meta name="dtb:uid" content="' + id + '"/>\n<meta name="dtb:depth" content="1"/>\n<meta name="dtb:totalPageCount" content="0"/>\n<meta name="dtb:maxPageNumber" content="0"/>\n</head>\n' +
+      '<docTitle><text>' + xesc(bookTitle) + '</text></docTitle>\n<navMap>\n' +
+      chapters.map(function (c, k) {
+        return '<navPoint id="np' + (k + 1) + '" playOrder="' + (k + 1) + '"><navLabel><text>' + xesc(c.title) + '</text></navLabel><content src="' + c.file + '"/></navPoint>';
+      }).join('\n') + '\n</navMap>\n</ncx>\n';
+    var opf = '<?xml version="1.0" encoding="utf-8"?>\n' +
+      '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid" xml:lang="zh-TW">\n' +
+      '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n' +
+      '<dc:identifier id="bookid">' + id + '</dc:identifier>\n' +
+      '<dc:title>' + xesc(bookTitle) + '</dc:title>\n' +
+      '<dc:language>zh-TW</dc:language>\n' +
+      '<meta property="dcterms:modified">' + modified + '</meta>\n' +
+      '</metadata>\n<manifest>\n' +
+      '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>\n' +
+      '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\n' +
+      '<item id="css" href="style.css" media-type="text/css"/>\n' +
+      chapters.map(function (c, k) { return '<item id="c' + (k + 1) + '" href="' + c.file + '" media-type="application/xhtml+xml"/>'; }).join('\n') +
+      '\n</manifest>\n<spine toc="ncx">\n' +
+      chapters.map(function (c, k) { return '<itemref idref="c' + (k + 1) + '"/>'; }).join('\n') +
+      '\n</spine>\n</package>\n';
+    var container = '<?xml version="1.0" encoding="UTF-8"?>\n<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">\n' +
+      '<rootfiles>\n<rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>\n</rootfiles>\n</container>\n';
+    return {
+      title: bookTitle, chapters: chapters.length,
+      files: [
+        { path: 'META-INF/container.xml', data: container },
+        { path: 'OEBPS/content.opf', data: opf },
+        { path: 'OEBPS/nav.xhtml', data: xmlSafe(nav) },
+        { path: 'OEBPS/toc.ncx', data: xmlSafe(ncx) },
+        { path: 'OEBPS/style.css', data: EPUB_CSS }
+      ].concat(files)
+    };
+  }
+
+  async function makeEpub() {
+    if (!window.marked || !window.DOMPurify) { toast('排版元件沒有載入成功，請重新整理'); return; }
+    clearTimeout(renderTimer); render(); persist();
+    var norm = normalize(src.value);
+    if (!norm.text.trim()) { toast('先貼上筆記才能製作 EPUB'); return; }
+    setBusy(true, '載入 EPUB 元件…', 0.15, '正在製作 EPUB');
+    try { if (!window.JSZip) await loadScript(LIBS.jszip); }
+    catch (e) { setBusy(false); toast('EPUB 元件載入失敗，請確認網路後再試一次'); return; }
+    try {
+      setBusy(true, '整理章節…', 0.4);
+      var html = window.DOMPurify.sanitize(window.marked.parse(norm.text), { USE_PROFILES: { html: true } });
+      var book = buildEpubFiles(html, !!state.noemoji);
+      var zip = new window.JSZip();
+      zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
+      book.files.forEach(function (f) { zip.file(f.path, f.data); });
+      setBusy(true, '打包中…', 0.75);
+      lastBlob = await zip.generateAsync({ type: 'blob', mimeType: 'application/epub+zip', compression: 'DEFLATE', compressionOptions: { level: 9 } });
+      lastKind = 'epub';
+      setBusy(false);
+      openSheet(book.chapters + ' 章 · ' + fmtSize(lastBlob.size) + ' · 可調字級的電子書');
+    } catch (err) {
+      setBusy(false);
+      toast('製作失敗：' + (err && err.message ? err.message : '未知錯誤'));
+    }
+  }
+
+  // ---------- result sheet ----------
+  function openSheet(meta) {
+    var K = KINDS[lastKind];
+    $('#sheet-title').textContent = K.label + ' 做好了';
+    $('#btn-save').textContent = '儲存 ' + K.label;
+    $('#sheet-meta').textContent = meta;
     $('#fname').value = currentTitle;
     var canShare = false;
     if (IS_TOP && navigator.canShare) {
-      try { canShare = navigator.canShare({ files: [new File([lastBlob], 'a.pdf', { type: 'application/pdf' })] }); } catch (e) { canShare = false; }
+      try { canShare = navigator.canShare({ files: [new File([lastBlob], 'a.' + K.ext, { type: K.mime })] }); } catch (e) { canShare = false; }
     }
     $('#btn-share').hidden = !canShare;
-    $('#btn-open').hidden = !IS_TOP;
+    $('#btn-share').textContent = lastKind === 'pdf' ? '分享到 GoodNotes 等 App' : '分享到閱讀器 App';
+    $('#btn-open').hidden = !IS_TOP || lastKind !== 'pdf';
     var hint;
-    if (IN_VIEWER && !IS_TOP) hint = '按「儲存 PDF」後確認一次。在 Claude 的 iPad／iPhone App 會跳出分享選單，可以直接選 GoodNotes。';
-    else if (canShare) hint = 'iPad 上按「分享到 GoodNotes 等 App」，在選單裡選 GoodNotes 就會匯入。';
-    else hint = '存好後，在 GoodNotes 按「＋」→「匯入」選這個檔案；電子閱讀器用傳輸線或雲端同步放進去。';
+    if (lastKind === 'epub') {
+      hint = 'Kindle：用 Send to Kindle（手機 App、網頁或寄到你的 Kindle 信箱）傳過去。Kobo、Boox：用傳輸線或雲端同步放進裝置。Mac 和 iPad 也可以直接用「書籍」App 打開。';
+    } else if (IN_VIEWER && !IS_TOP) {
+      hint = '按「儲存 PDF」後確認一次。在 Claude 的 iPad／iPhone App 會跳出分享選單，可以直接選 GoodNotes。';
+    } else if (canShare) {
+      hint = 'iPad 上按「分享到 GoodNotes 等 App」，在選單裡選 GoodNotes 就會匯入。';
+    } else {
+      hint = '存好後，在 GoodNotes 按「＋」→「匯入」選這個檔案；Mac 上存好的檔案可以用 AirDrop 或 iCloud 雲碟傳到 iPad。';
+    }
     $('#sheet-hint').textContent = hint;
     $('#sheet').hidden = false;
     $('#btn-save').focus();
   }
   function closeSheet() { $('#sheet').hidden = true; }
-  function fileName() { return cleanName($('#fname').value) + '.pdf'; }
+  function fileName() { return cleanName($('#fname').value) + '.' + KINDS[lastKind].ext; }
 
-  async function savePdf() {
+  async function saveFile() {
     if (!lastBlob) return;
     var name = fileName();
     if (downloadsCap) {
@@ -1195,25 +1383,26 @@ details.help[open] > summary::after { content: "－"; }
     document.body.appendChild(a); a.click(); a.remove();
     toast('已開始下載 ' + name);
   }
-  async function sharePdf() {
+  async function shareFile() {
     if (!lastBlob) return;
-    var file = new File([lastBlob], fileName(), { type: 'application/pdf' });
+    var file = new File([lastBlob], fileName(), { type: KINDS[lastKind].mime });
     try { await navigator.share({ files: [file], title: fileName() }); closeSheet(); }
-    catch (e) { if (!e || e.name !== 'AbortError') toast('沒有分享成功，可以改按「儲存 PDF」'); }
+    catch (e) { if (!e || e.name !== 'AbortError') toast('沒有分享成功，可以改按「儲存」'); }
   }
-  function openPdf() {
+  function openFile() {
     if (!lastBlob) return;
     if (lastUrl) URL.revokeObjectURL(lastUrl);
     lastUrl = URL.createObjectURL(lastBlob);
     var w = window.open(lastUrl, '_blank');
-    if (!w) toast('瀏覽器擋住了新分頁，請改按「儲存 PDF」');
+    if (!w) toast('瀏覽器擋住了新分頁，請改按「儲存」');
   }
 
   $('#btn-make').addEventListener('click', makePdf);
   $('#btn-make-top').addEventListener('click', makePdf);
-  $('#btn-save').addEventListener('click', savePdf);
-  $('#btn-share').addEventListener('click', sharePdf);
-  $('#btn-open').addEventListener('click', openPdf);
+  $('#btn-epub').addEventListener('click', makeEpub);
+  $('#btn-save').addEventListener('click', saveFile);
+  $('#btn-share').addEventListener('click', shareFile);
+  $('#btn-open').addEventListener('click', openFile);
   $('#btn-close').addEventListener('click', closeSheet);
   $('#sheet').addEventListener('click', function (e) { if (e.target === e.currentTarget) closeSheet(); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
@@ -1221,7 +1410,7 @@ details.help[open] > summary::after { content: "－"; }
   if (IS_TOP) {
     var printBtn = $('#btn-print'); printBtn.hidden = false;
     printBtn.addEventListener('click', function () { clearTimeout(renderTimer); render(); window.print(); });
-    $('#out-hint').textContent = 'PDF 每頁都跟預覽一模一樣，可以直接匯入 GoodNotes 書寫。想要能選取、搜尋文字，改用「列印」並選「存成 PDF」。';
+    $('#out-hint').textContent = 'PDF 每頁都跟預覽一模一樣，適合 GoodNotes 書寫；想要能選取、搜尋文字，改用「列印」並選「儲存為 PDF」。EPUB 會在閱讀器裡重新排版、可以調字級，每個 📌 段落是一章，適合 Kindle、Kobo 閱讀。';
   }
 
   // ---------- boot ----------
@@ -1230,7 +1419,10 @@ details.help[open] > summary::after { content: "－"; }
   var resizeTimer = null;
   window.addEventListener('resize', function () { clearTimeout(resizeTimer); resizeTimer = setTimeout(layoutPreview, 120); });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { render(); });
-  setTimeout(function () { loadPdfLibs().catch(function () {}); }, 1500);
+  setTimeout(function () {
+    loadPdfLibs().catch(function () {});
+    if (!window.JSZip) loadScript(LIBS.jszip).catch(function () {});
+  }, 1500);
 })();
 </script>
 </body>
