@@ -9,8 +9,7 @@
 - 即時預覽，自動分頁；表格太長會帶著表頭接到下一頁，標題不會孤零零留在頁尾
 - 頁面尺寸：A4（GoodNotes、列印）、3:4（iPad 全螢幕、Kindle Scribe、reMarkable、Boox 10.3 吋）、6–7 吋電子書（Kindle、Kobo）
 - 字級四段、配色三種（原色、純白、電子紙高對比）、頁碼開關
-- 「製作 PDF」：每頁跟預覽一模一樣；iPad 上可以直接分享到 GoodNotes
-- 「列印／存成可選取文字的 PDF」：用瀏覽器列印存檔，文字可以搜尋、選取
+- 「製作 PDF」：每頁跟預覽一模一樣，文字可以選取、複製、搜尋；iPad 上可以直接分享到 GoodNotes
 - 「製作 EPUB 電子書」：在閱讀器裡重新排版、可以調字級，每個 📌 段落是一章，有目錄；Kindle 用 Send to Kindle，Kobo、Boox 直接放進去；可選擇拿掉 emoji
 - 貼上的內容裡有 `~~~~markdown` 區塊時，只取區塊裡面的內容；整則回答全選複製也可以
 - 從網頁複製有格式的內容會自動轉回 Markdown；純文字會依 📌 這類符號推測標題（表格救不回來）
@@ -40,4 +39,4 @@
 
 ## 使用的開源套件
 
-都從 CDN 載入：[marked](https://github.com/markedjs/marked)、[JSZip](https://github.com/Stuk/jszip)、[DOMPurify](https://github.com/cure53/DOMPurify)、[Turndown](https://github.com/mixmark-io/turndown)、[html2canvas](https://github.com/niklasvh/html2canvas)、[jsPDF](https://github.com/parallax/jsPDF)。
+都從 CDN 載入：[marked](https://github.com/markedjs/marked)、[JSZip](https://github.com/Stuk/jszip)、[DOMPurify](https://github.com/cure53/DOMPurify)、[Turndown](https://github.com/mixmark-io/turndown)、[html2canvas](https://github.com/niklasvh/html2canvas)、[pdf-lib](https://github.com/Hopding/pdf-lib)。

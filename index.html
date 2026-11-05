@@ -423,10 +423,9 @@ details.help[open] > summary::after { content: "－"; }
         <div class="actions">
           <button class="btn primary" id="btn-make" type="button">製作 PDF</button>
           <button class="btn" id="btn-epub" type="button">製作 EPUB 電子書</button>
-          <button class="btn" id="btn-print" type="button" hidden>列印／存成可選取文字的 PDF</button>
         </div>
         <label class="switch" for="opt-noemoji">EPUB 拿掉 emoji（閱讀器顯示成方框時再勾）<input type="checkbox" id="opt-noemoji"></label>
-        <p class="hint" id="out-hint">PDF 每頁都跟預覽一模一樣，適合 GoodNotes 書寫。EPUB 會在閱讀器裡重新排版、可以調字級，每個 📌 段落是一章，適合 Kindle、Kobo 閱讀。</p>
+        <p class="hint" id="out-hint">PDF 每頁都跟預覽一模一樣，文字可以選取、複製、搜尋，適合 GoodNotes 書寫。EPUB 會在閱讀器裡重新排版、可以調字級，每個 📌 段落是一章，適合 Kindle、Kobo 閱讀。</p>
       </section>
 
       <details class="help" id="help">
@@ -490,7 +489,7 @@ details.help[open] > summary::after { content: "－"; }
 
   var LIBS = {
     html2canvas: 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
-    jspdf: 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+    pdflib: 'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js',
     jszip: 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'
   };
 
@@ -641,7 +640,7 @@ details.help[open] > summary::after { content: "－"; }
   function loadPdfLibs() {
     var jobs = [];
     if (!window.html2canvas) jobs.push(loadScript(LIBS.html2canvas));
-    if (!(window.jspdf && window.jspdf.jsPDF)) jobs.push(loadScript(LIBS.jspdf));
+    if (!window.PDFLib) jobs.push(loadScript(LIBS.pdflib));
     return Promise.all(jobs);
   }
 
@@ -1118,6 +1117,137 @@ details.help[open] > summary::after { content: "－"; }
     return bytes > 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(bytes / 1024)) + ' KB';
   }
 
+  // Invisible text layer: a tiny font with one empty glyph (the approach OCR tools use).
+  // Every character gets its own code; a ToUnicode map turns the codes back into text on copy.
+  var GLF_B64 = 'AAEAAAAKAIAAAwAgT1MvMkUARaQAAAEoAAAAYGNtYXAADABzAAABkAAAADRnbHlmAAAAAAAAAcwAAAABaGVhZC05RAwAAACsAAAANmhoZWEDIgMiAAAA5AAAACRobXR4A+gAAAAAAYgAAAAGbG9jYQAAAAAAAAHEAAAABm1heHAAAwACAAABCAAAACBuYW1lGZ8ZNAAAAdAAAABycG9zdDIGAmcAAAJEAAAAKQABAAAAAQAAG6lLNV8PPPUAAwPoAAAAAOcRgZYAAAAA5xGBlgAAAAAAAAAAAAAAAwACAAAAAAAAAAEAAAMg/zgAAAPoAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAEAAAACAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAwPoAZAABQAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAPz8/PwAAACAAIAMg/zgAAAMgAMgAAAAAAAAAAAAAAAAAAAAgAAAD6AAAAAAAAAAAAAIAAAADAAAAFAADAAEAAAAUAAQAIAAAAAQABAABAAAAIP//AAAAIP///+EAAQAAAAAAAAAAAAAAAAAAAAAAAAAEADYAAQAAAAAAAQANAAAAAQAAAAAAAgAHAA0AAwABBAkAAQAaABQAAwABBAkAAgAOAC5HbHlwaExlc3NGb250UmVndWxhcgBHAGwAeQBwAGgATABlAHMAcwBGAG8AbgB0AFIAZQBnAHUAbABhAHIAAAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAECAmcxAAAA';
+  function b64ToBytes(b64) {
+    var bin = atob(b64), out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  // Text a character copies as. Variation selectors are left out: some PDF readers misplace glyphs that end with one.
+  function textOf(ch) { return ch.replace(/[\uFE0E\uFE0F]/g, '') || ch; }
+  function utf16Hex(ch) {
+    var h = '';
+    for (var i = 0; i < ch.length; i++) h += ch.charCodeAt(i).toString(16).toUpperCase().padStart(4, '0');
+    return h;
+  }
+
+  // Split text into user-perceived characters, so an emoji like ⚠️ or 🇺🇸 stays one piece.
+  var segmenter = null;
+  try { if (window.Intl && Intl.Segmenter) segmenter = new Intl.Segmenter('zh-Hant', { granularity: 'grapheme' }); } catch (e) { segmenter = null; }
+  function clusters(s) {
+    if (segmenter) return Array.from(segmenter.segment(s), function (x) { return x.segment; });
+    var out = [], prevZwj = false, ri = 0;
+    Array.from(s).forEach(function (c) {
+      var cp = c.codePointAt(0);
+      var joins = cp === 0xfe0f || cp === 0xfe0e || cp === 0x200d || cp === 0x20e3 || (cp >= 0x1f3fb && cp <= 0x1f3ff) || (cp >= 0x300 && cp <= 0x36f);
+      var isRi = cp >= 0x1f1e6 && cp <= 0x1f1ff;
+      if (out.length && (joins || prevZwj || (isRi && ri % 2 === 1))) out[out.length - 1] += c;
+      else out.push(c);
+      ri = isRi ? ri + 1 : 0;
+      prevZwj = cp === 0x200d;
+    });
+    return out;
+  }
+
+  // Positions of every visible character on one page, in page pixels, in reading order.
+  function collectText(pageEl) {
+    var body = pageEl.querySelector('.page-body');
+    var o = pageEl.getBoundingClientRect();
+    var items = [], range = document.createRange(), pendingLi = null, n;
+    var walker = document.createTreeWalker(body, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+    while ((n = walker.nextNode())) {
+      if (n.nodeType === 1) { if (n.tagName === 'LI') pendingLi = n; continue; }
+      var s = n.nodeValue || '', pos = 0;
+      clusters(s).forEach(function (ch) {
+        var start = pos; pos += ch.length;
+        range.setStart(n, start); range.setEnd(n, pos);
+        var r = range.getBoundingClientRect();
+        if (!r || r.width <= 0.01 || r.height <= 0.01) return;
+        if (/^\s+$/.test(ch)) ch = ' ';
+        var mono = !!(n.parentNode && n.parentNode.closest && n.parentNode.closest('pre, code'));
+        var it = { ch: ch, key: mono ? ch + '\u0000m' : ch, x: r.left - o.left, top: r.top - o.top, w: r.width, h: r.height };
+        if (pendingLi && ch !== ' ') {
+          var li = pendingLi; pendingLi = null;
+          var mark = li.parentNode && li.parentNode.tagName === 'OL' ? (li.getAttribute('data-n') || '') + '.' : '•';
+          var lr = li.getBoundingClientRect();
+          var right = lr.left - o.left - it.h * 0.3;
+          var cw = it.h * (mark === '•' ? 0.4 : 0.5);
+          var chars = Array.from(mark);
+          chars.forEach(function (mc, k) {
+            items.push({ ch: mc, key: mc, x: right - cw * (chars.length - k), top: it.top, w: cw, h: it.h, marker: true });
+          });
+        }
+        items.push(it);
+      });
+    }
+    return items;
+  }
+
+  // Group characters into runs that sit on one line without big gaps.
+  function toRuns(items) {
+    var runs = [], cur = null;
+    items.forEach(function (it) {
+      var c = it.top + it.h / 2;
+      if (cur) {
+        var last = cur.items[cur.items.length - 1];
+        var gap = it.x - (last.x + last.w);
+        var sameLine = Math.abs(c - cur.c) < 0.5 * Math.min(it.h, cur.h);
+        if (!sameLine || gap < -it.h * 0.35 || gap > it.h * 1.6) cur = null;
+      }
+      if (!cur) { cur = { items: [], c: c, h: it.h }; runs.push(cur); }
+      cur.items.push(it);
+    });
+    return runs.map(function (r) {
+      var a = r.items;
+      while (a.length && a[0].ch === ' ') a.shift();
+      while (a.length && a[a.length - 1].ch === ' ') a.pop();
+      return r;
+    }).filter(function (r) { return r.items.length; });
+  }
+  function median(arr) {
+    var a = arr.slice().sort(function (x, y) { return x - y; });
+    return a.length ? a[a.length >> 1] : 0;
+  }
+
+  function buildTextFont(doc, chars, widths) {
+    var L = window.PDFLib, ctx = doc.context;
+    var fontBytes = b64ToBytes(GLF_B64);
+    var fileRef = ctx.register(ctx.flateStream(fontBytes, { Length1: fontBytes.length }));
+    var descRef = ctx.register(ctx.obj({
+      Type: 'FontDescriptor', FontName: 'GlyphLessFont', Flags: 4,
+      FontBBox: [0, -200, 1000, 800], ItalicAngle: 0, Ascent: 800, Descent: -200,
+      CapHeight: 800, StemV: 80, FontFile2: fileRef
+    }));
+    var map = new Uint8Array((chars.length + 1) * 2);
+    for (var i = 1; i <= chars.length; i++) map[i * 2 + 1] = 1;
+    var mapRef = ctx.register(ctx.flateStream(map));
+    var cidRef = ctx.register(ctx.obj({
+      Type: 'Font', Subtype: 'CIDFontType2', BaseFont: 'GlyphLessFont',
+      CIDSystemInfo: { Registry: L.PDFString.of('Adobe'), Ordering: L.PDFString.of('Identity'), Supplement: 0 },
+      FontDescriptor: descRef, DW: 1000, W: [1, widths], CIDToGIDMap: mapRef
+    }));
+    var lines = [
+      '/CIDInit /ProcSet findresource begin', '12 dict begin', 'begincmap',
+      '/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def',
+      '/CMapName /Adobe-Identity-UCS def', '/CMapType 2 def',
+      '1 begincodespacerange', '<0000> <FFFF>', 'endcodespacerange'
+    ];
+    for (var k = 0; k < chars.length; k += 100) {
+      var block = chars.slice(k, k + 100);
+      lines.push(block.length + ' beginbfchar');
+      block.forEach(function (ch, j) { lines.push('<' + (k + j + 1).toString(16).toUpperCase().padStart(4, '0') + '> <' + utf16Hex(ch) + '>'); });
+      lines.push('endbfchar');
+    }
+    lines.push('endcmap', 'CMapName currentdict /CMap defineresource pop', 'end', 'end');
+    var tuRef = ctx.register(ctx.flateStream(lines.join('\n')));
+    return ctx.register(ctx.obj({
+      Type: 'Font', Subtype: 'Type0', BaseFont: 'GlyphLessFont', Encoding: 'Identity-H',
+      DescendantFonts: [cidRef], ToUnicode: tuRef
+    }));
+  }
+
   async function makePdf() {
     if (!pagesEl.querySelector('.page')) { toast('先貼上筆記才能製作 PDF'); return; }
     clearTimeout(renderTimer); render(); persist();
@@ -1126,30 +1256,86 @@ details.help[open] > summary::after { content: "－"; }
     catch (e) { setBusy(false); toast('PDF 元件載入失敗，請確認網路後再試一次'); return; }
     try {
       if (document.fonts && document.fonts.ready) await document.fonts.ready;
+      var L = window.PDFLib;
       var P = PRESETS[state.preset], T = THEMES[state.theme];
-      var scale = state.hq ? 3 : 2;
-      var wPt = P.w * 0.75, hPt = P.h * 0.75;
-      var pdf = new window.jspdf.jsPDF({ unit: 'pt', format: [wPt, hPt], orientation: 'portrait', compress: true });
+      var scale = state.hq ? 3 : 2, PX = 0.75;
+      var wPt = P.w * PX, hPt = P.h * PX;
       var pages = pagesEl.querySelectorAll('.page');
+      var shots = [];
       for (var i = 0; i < pages.length; i++) {
-        setBusy(true, '正在製作第 ' + (i + 1) + ' / ' + pages.length + ' 頁…', (i + 0.2) / pages.length);
+        setBusy(true, '正在製作第 ' + (i + 1) + ' / ' + pages.length + ' 頁…', (i + 0.2) / (pages.length + 0.5));
         var clone = pages[i].cloneNode(true);
         stage.textContent = '';
         stage.appendChild(clone);
         await nextFrame();
+        var items = collectText(clone);
         var canvas = await window.html2canvas(clone, {
           scale: scale, backgroundColor: T.paper, logging: false, useCORS: true,
           windowWidth: Math.max(window.innerWidth, P.w + 40),
           windowHeight: Math.max(window.innerHeight, P.h + 40)
         });
-        var data = canvas.toDataURL('image/jpeg', 0.92);
-        if (i > 0) pdf.addPage([wPt, hPt], 'portrait');
-        pdf.addImage(data, 'JPEG', 0, 0, wPt, hPt, undefined, 'FAST');
+        var jpg = await new Promise(function (res, rej) {
+          canvas.toBlob(function (b) { b ? res(b) : rej(new Error('畫面轉換失敗')); }, 'image/jpeg', 0.92);
+        });
+        shots.push({ jpg: new Uint8Array(await jpg.arrayBuffer()), runs: toRuns(items) });
         canvas.width = 0; canvas.height = 0;
       }
       stage.textContent = '';
-      pdf.setProperties({ title: currentTitle, creator: '筆記印刷機' });
-      lastBlob = pdf.output('blob'); lastKind = 'pdf';
+      setBusy(true, '加上可以複製的文字…', (pages.length + 0.2) / (pages.length + 0.5));
+
+      // one code per distinct character; its width comes from how wide the browser drew it
+      var cidOf = Object.create(null), chars = [], ratios = [];
+      shots.forEach(function (s) {
+        s.runs.forEach(function (r) {
+          r.items.forEach(function (it) {
+            if (!(it.key in cidOf)) { chars.push(textOf(it.ch)); ratios.push([]); cidOf[it.key] = chars.length; }
+            if (!it.marker) ratios[cidOf[it.key] - 1].push(it.w / it.h);
+          });
+        });
+      });
+      var widths = ratios.map(function (rs, k) {
+        var m = rs.length ? median(rs) : 0.5;
+        return Math.max(50, Math.min(3000, Math.round(m * 1000)));
+      });
+
+      var doc = await L.PDFDocument.create();
+      doc.setTitle(currentTitle);
+      doc.setCreator('筆記印刷機');
+      doc.setProducer('筆記印刷機');
+      var fontRef = chars.length ? buildTextFont(doc, chars, widths) : null;
+      var fontName = L.PDFName.of('GLF');
+      for (var p = 0; p < shots.length; p++) {
+        var page = doc.addPage([wPt, hPt]);
+        var img = await doc.embedJpg(shots[p].jpg);
+        page.drawImage(img, { x: 0, y: 0, width: wPt, height: hPt });
+        if (!fontRef || !shots[p].runs.length) continue;
+        page.node.setFontDictionary(fontName, fontRef);
+        var ops = [L.beginText(), L.setTextRenderingMode(L.TextRenderingMode.Invisible)];
+        shots[p].runs.forEach(function (r) {
+          var its = r.items;
+          var fs = median(its.filter(function (t) { return !t.marker; }).map(function (t) { return t.h; })) || its[0].h;
+          var base = median(its.map(function (t) { return t.top + t.h * 0.8; }));
+          var arr = [];
+          its.forEach(function (it, k) {
+            var cid = cidOf[it.key];
+            arr.push(L.PDFHexString.of(cid.toString(16).toUpperCase().padStart(4, '0')));
+            var nx = its[k + 1];
+            if (nx) {
+              var adj = Math.round(((it.x + widths[cid - 1] / 1000 * fs) - nx.x) / fs * 1000);
+              if (adj) arr.push(L.PDFNumber.of(adj));
+            }
+          });
+          ops.push(
+            L.setFontAndSize(fontName, +(fs * PX).toFixed(3)),
+            L.setTextMatrix(1, 0, 0, 1, +(its[0].x * PX).toFixed(2), +(hPt - base * PX).toFixed(2)),
+            L.PDFOperator.of(L.PDFOperatorNames.ShowTextAdjusted, [doc.context.obj(arr)])
+          );
+        });
+        ops.push(L.endText());
+        page.pushOperators.apply(page, ops);
+      }
+      var bytes = await doc.save();
+      lastBlob = new Blob([bytes], { type: 'application/pdf' }); lastKind = 'pdf';
       setBusy(false);
       openSheet(pages.length + ' 頁 · ' + fmtSize(lastBlob.size) + ' · ' + P.label + '（' + P.mm + '）');
     } catch (err) {
@@ -1407,11 +1593,6 @@ details.help[open] > summary::after { content: "－"; }
   $('#sheet').addEventListener('click', function (e) { if (e.target === e.currentTarget) closeSheet(); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('#sheet').hidden) closeSheet(); });
 
-  if (IS_TOP) {
-    var printBtn = $('#btn-print'); printBtn.hidden = false;
-    printBtn.addEventListener('click', function () { clearTimeout(renderTimer); render(); window.print(); });
-    $('#out-hint').textContent = 'PDF 每頁都跟預覽一模一樣，適合 GoodNotes 書寫；想要能選取、搜尋文字，改用「列印」並選「儲存為 PDF」。EPUB 會在閱讀器裡重新排版、可以調字級，每個 📌 段落是一章，適合 Kindle、Kobo 閱讀。';
-  }
 
   // ---------- boot ----------
   syncControls();
